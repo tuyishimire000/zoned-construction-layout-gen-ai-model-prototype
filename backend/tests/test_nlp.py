@@ -34,9 +34,10 @@ def test_extract_unstructured():
     assert params["usage"] == "industrial"
 
 def test_extract_rooms():
-    desc = "I want a residential house with 3 bedrooms, 2 bathrooms, 1 kitchen, and 2 offices."
+    desc = "I want a residential house with 3 bedrooms, 2 bathrooms, 1 kitchen, and 2 offices. single floor."
     params = extract_parameters(desc)
     assert params["usage"] == "residential"
+    assert params["floors"] == 1
     assert params["rooms"]["bedrooms"] == 3
     assert params["rooms"]["bathrooms"] == 2
     assert params["rooms"]["kitchens"] == 1

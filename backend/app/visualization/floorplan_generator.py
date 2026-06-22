@@ -28,7 +28,7 @@ def generate_floorplan(params: dict, compliance: dict) -> str:
     plot_size = params.get('plot_size') or 500
     floors = params.get('floors') or 1
     parking = params.get('parking_spaces') or 0
-    usage = params.get('usage', 'residential')
+    usage = params.get('usage') or 'residential'
     rooms = params.get('rooms', {})
     
     metrics = compliance.get('metrics', {})
