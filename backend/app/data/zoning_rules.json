@@ -1,0 +1,14 @@
+{
+  "residential": {
+    "max_site_coverage": 0.60,
+    "max_floors": 3,
+    "min_front_setback": 5,
+    "parking_required_per_unit": 1
+  },
+  "commercial": {
+    "max_site_coverage": 0.70,
+    "max_floors": 6,
+    "min_front_setback": 3,
+    "parking_required_per_unit": 2
+  }
+}
