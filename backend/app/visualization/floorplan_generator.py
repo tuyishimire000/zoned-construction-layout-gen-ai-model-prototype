@@ -1,7 +1,7 @@
 import io
 import base64
 import math
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 ROOM_COLORS = {
     "bedrooms": "#C8E6C9", # Green
@@ -52,45 +52,77 @@ def generate_floorplan(params: dict, compliance: dict) -> str:
     
     draw.rectangle([bldg_x0, bldg_y0, bldg_x1, bldg_y1], fill='#E0F7FA', outline='#00838F', width=2)
     
-    # Process Rooms partitioning
     room_items = []
     for rtype, count in rooms.items():
         for _ in range(count):
             room_items.append((rtype, STANDARD_ROOM_SIZES.get(rtype, 10)))
             
     if room_items:
-        # Alternating split partitioning
-        total_weight = sum(w for _, w in room_items)
-        current_rect = [bldg_x0, bldg_y0, bldg_x1, bldg_y1]
+        # Architect-Level Features: Corridor and doors
+        corr_h = 40
+        # If building is very small, scale corridor
+        if bldg_h < 100: corr_h = 20
         
-        remaining_weight = total_weight
+        corr_y0 = bldg_y0 + (bldg_h - corr_h) / 2
+        corr_y1 = corr_y0 + corr_h
         
-        for i, (rtype, weight) in enumerate(room_items):
-            ratio = weight / remaining_weight
-            x0, y0, x1, y1 = current_rect
-            w = x1 - x0
-            h = y1 - y0
-            
-            # Split along longest axis
-            if w > h:
-                split_x = x0 + w * ratio
-                room_rect = [x0, y0, split_x, y1]
-                current_rect = [split_x, y0, x1, y1]
+        top_rect = [bldg_x0, bldg_y0, bldg_x1, corr_y0]
+        bottom_rect = [bldg_x0, corr_y1, bldg_x1, bldg_y1]
+        
+        # Split rooms roughly in half by weight
+        top_rooms = []
+        bottom_rooms = []
+        top_weight = 0
+        bottom_weight = 0
+        
+        # Sort rooms so big rooms go first
+        room_items.sort(key=lambda x: x[1], reverse=True)
+        
+        for r in room_items:
+            if top_weight <= bottom_weight:
+                top_rooms.append(r)
+                top_weight += r[1]
             else:
-                split_y = y0 + h * ratio
-                room_rect = [x0, y0, x1, split_y]
-                current_rect = [x0, split_y, x1, y1]
+                bottom_rooms.append(r)
+                bottom_weight += r[1]
                 
-            remaining_weight -= weight
+        def draw_wing(wing_rect, wing_rooms, is_top):
+            wx0, wy0, wx1, wy1 = wing_rect
+            total_w = sum(w for _, w in wing_rooms)
+            if total_w == 0: return
             
-            # Draw room
-            draw.rectangle(room_rect, fill=ROOM_COLORS.get(rtype, "#EEEEEE"), outline='gray', width=1)
-            # Label
-            label = rtype[:-1].capitalize() if rtype.endswith('s') else rtype.capitalize()
-            # Simple text centering logic
-            text_x = room_rect[0] + 5
-            text_y = room_rect[1] + 5
-            draw.text((text_x, text_y), label, fill='black')
+            curr_x = wx0
+            for rtype, w in wing_rooms:
+                ratio = w / total_w
+                room_width = (wx1 - wx0) * ratio
+                room_rect = [curr_x, wy0, curr_x + room_width, wy1]
+                
+                # Draw room
+                draw.rectangle(room_rect, fill=ROOM_COLORS.get(rtype, "#EEEEEE"), outline='gray', width=2)
+                
+                # Draw Door
+                door_width = 20
+                door_x = curr_x + (room_width - door_width) / 2
+                
+                if is_top:
+                    # Door on bottom edge
+                    draw.rectangle([door_x, wy1 - 3, door_x + door_width, wy1 + 3], fill='#E0F7FA', outline='#E0F7FA')
+                else:
+                    # Door on top edge
+                    draw.rectangle([door_x, wy0 - 3, door_x + door_width, wy0 + 3], fill='#E0F7FA', outline='#E0F7FA')
+
+                # Label
+                label = rtype[:-1].capitalize() if rtype.endswith('s') else rtype.capitalize()
+                draw.text((curr_x + 5, wy0 + 5), label, fill='black')
+                
+                curr_x += room_width
+
+        draw_wing(top_rect, top_rooms, is_top=True)
+        draw_wing(bottom_rect, bottom_rooms, is_top=False)
+        
+        # Draw Corridor floor
+        draw.rectangle([bldg_x0, corr_y0, bldg_x1, corr_y1], fill='#CFD8DC', outline='gray', width=1)
+        draw.text((bldg_x0 + 10, corr_y0 + (corr_h/2) - 5), "Central Hallway", fill='#455A64')
 
     # Parking
     if parking > 0:

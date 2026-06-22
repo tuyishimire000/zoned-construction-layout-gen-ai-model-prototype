@@ -54,6 +54,20 @@ def validate_project(params: dict) -> dict:
         violations.append(f"Total requested room area ({total_room_area} sqm) exceeds estimated available internal area ({total_allowed_internal_area:.1f} sqm).")
         recommendations.append("Reduce the number of rooms or increase the plot size/floors.")
         
+    # AI-assisted architectural recommendations
+    bedrooms = rooms.get("bedrooms", 0)
+    bathrooms = rooms.get("bathrooms", 0)
+    kitchens = rooms.get("kitchens", 0)
+    
+    if bedrooms > 0 and bathrooms == 0:
+        recommendations.append("AI Tip: A residential home with bedrooms should have at least 1 bathroom.")
+    elif bedrooms >= 3 and bathrooms < 2:
+        recommendations.append(f"AI Tip: For a {bedrooms}-bedroom home, it is highly recommended to have at least 2 bathrooms.")
+        
+    if (bedrooms > 0 or bathrooms > 0) and kitchens == 0:
+        recommendations.append("AI Tip: Most residential homes require at least 1 kitchen area.")
+
+        
     compliant = len(violations) == 0
     
     if compliant:
