@@ -38,6 +38,22 @@ def validate_project(params: dict) -> dict:
         violations.append(f"Site coverage ({coverage*100:.1f}%) exceeds maximum allowed ({usage_rules['max_site_coverage']*100:.1f}%).")
         recommendations.append(f"Reduce building footprint to be under {allowed_area} sqm.")
         
+    STANDARD_ROOM_SIZES = {
+        "bedrooms": 15,
+        "bathrooms": 5,
+        "kitchens": 10,
+        "living_rooms": 20,
+        "offices": 12
+    }
+    
+    rooms = params.get("rooms", {})
+    total_room_area = sum(rooms.get(room_type, 0) * size for room_type, size in STANDARD_ROOM_SIZES.items())
+    total_allowed_internal_area = allowed_area * floors
+    
+    if total_room_area > total_allowed_internal_area:
+        violations.append(f"Total requested room area ({total_room_area} sqm) exceeds estimated available internal area ({total_allowed_internal_area:.1f} sqm).")
+        recommendations.append("Reduce the number of rooms or increase the plot size/floors.")
+        
     compliant = len(violations) == 0
     
     if compliant:
@@ -54,6 +70,8 @@ def validate_project(params: dict) -> dict:
             "assumed_footprint": assumed_footprint,
             "plot_size": plot_size,
             "floors": floors,
-            "usage": usage
+            "usage": usage,
+            "total_room_area": total_room_area,
+            "total_allowed_internal_area": total_allowed_internal_area
         }
     }

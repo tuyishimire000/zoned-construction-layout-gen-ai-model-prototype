@@ -44,9 +44,9 @@ function App() {
     const timeoutId = setTimeout(async () => {
       try {
         // Re-construct a pseudo-description to force backend to use these params
-        // Alternatively, the backend could have a PUT/PATCH endpoint, but for MVP
-        // we can just send a highly structured description that our NLP easily parses.
-        const fakeDesc = `${interactiveParams.plot_size} sqm ${interactiveParams.usage} plot with ${interactiveParams.floors} floors and parking for ${interactiveParams.parking_spaces}.`;
+        const r = interactiveParams.rooms || {};
+        const roomDesc = `${r.bedrooms || 0} bedrooms, ${r.bathrooms || 0} bathrooms, ${r.kitchens || 0} kitchens, ${r.living_rooms || 0} living rooms, ${r.offices || 0} offices.`;
+        const fakeDesc = `${interactiveParams.plot_size} sqm ${interactiveParams.usage} plot with ${interactiveParams.floors} floors and parking for ${interactiveParams.parking_spaces}. ${roomDesc}`;
         
         const response = await fetch('http://localhost:8000/api/analyze', {
           method: 'POST',
@@ -71,6 +71,17 @@ function App() {
     setInteractiveParams({
       ...interactiveParams,
       [field]: field === 'usage' ? value : Number(value)
+    });
+  };
+
+  const handleRoomChange = (roomType, value) => {
+    if (!interactiveParams) return;
+    setInteractiveParams({
+      ...interactiveParams,
+      rooms: {
+        ...(interactiveParams.rooms || {}),
+        [roomType]: Number(value)
+      }
     });
   };
 
@@ -140,6 +151,31 @@ function App() {
                     <option value="commercial">Commercial</option>
                     <option value="industrial">Industrial</option>
                   </select>
+                </div>
+                
+                <div className="input-group">
+                  <label>Bedrooms: {interactiveParams.rooms?.bedrooms || 0}</label>
+                  <input type="range" min="0" max="10" step="1"
+                    value={interactiveParams.rooms?.bedrooms || 0}
+                    onChange={(e) => handleRoomChange('bedrooms', e.target.value)} />
+                </div>
+                <div className="input-group">
+                  <label>Bathrooms: {interactiveParams.rooms?.bathrooms || 0}</label>
+                  <input type="range" min="0" max="10" step="1"
+                    value={interactiveParams.rooms?.bathrooms || 0}
+                    onChange={(e) => handleRoomChange('bathrooms', e.target.value)} />
+                </div>
+                <div className="input-group">
+                  <label>Kitchens: {interactiveParams.rooms?.kitchens || 0}</label>
+                  <input type="range" min="0" max="5" step="1"
+                    value={interactiveParams.rooms?.kitchens || 0}
+                    onChange={(e) => handleRoomChange('kitchens', e.target.value)} />
+                </div>
+                <div className="input-group">
+                  <label>Living Rooms: {interactiveParams.rooms?.living_rooms || 0}</label>
+                  <input type="range" min="0" max="5" step="1"
+                    value={interactiveParams.rooms?.living_rooms || 0}
+                    onChange={(e) => handleRoomChange('living_rooms', e.target.value)} />
                 </div>
               </div>
             </div>

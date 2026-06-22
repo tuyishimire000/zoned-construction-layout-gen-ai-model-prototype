@@ -32,7 +32,14 @@ def extract_parameters(description: str) -> Dict[str, Any]:
         "plot_size": None,
         "floors": None,
         "usage": None,
-        "parking_spaces": None
+        "parking_spaces": None,
+        "rooms": {
+            "bedrooms": 0,
+            "bathrooms": 0,
+            "kitchens": 0,
+            "living_rooms": 0,
+            "offices": 0
+        }
     }
     
     # 1. Extract usage
@@ -49,6 +56,11 @@ def extract_parameters(description: str) -> Dict[str, Any]:
     area_keywords = {"sqm", "square", "meters", "m2", "m²", "area", "plot", "size"}
     floor_keywords = {"floors", "floor", "story", "stories", "storey", "levels", "level"}
     parking_keywords = {"parking", "cars", "vehicles", "spaces", "spots"}
+    bedroom_keywords = {"bedroom", "bedrooms", "bed", "beds"}
+    bathroom_keywords = {"bathroom", "bathrooms", "bath", "baths"}
+    kitchen_keywords = {"kitchen", "kitchens"}
+    living_keywords = {"living", "lounge"}
+    office_keywords = {"office", "offices", "study"}
 
     for i, token in enumerate(doc):
         num = parse_number(token.text)
@@ -62,6 +74,11 @@ def extract_parameters(description: str) -> Dict[str, Any]:
             dist_area = 999
             dist_floor = 999
             dist_parking = 999
+            dist_bedroom = 999
+            dist_bathroom = 999
+            dist_kitchen = 999
+            dist_living = 999
+            dist_office = 999
             
             # Look at a window of tokens around the number
             window = 8
@@ -80,8 +97,18 @@ def extract_parameters(description: str) -> Dict[str, Any]:
                     dist_floor = min(dist_floor, d)
                 if t in parking_keywords:
                     dist_parking = min(dist_parking, d)
+                if t in bedroom_keywords:
+                    dist_bedroom = min(dist_bedroom, d)
+                if t in bathroom_keywords:
+                    dist_bathroom = min(dist_bathroom, d)
+                if t in kitchen_keywords:
+                    dist_kitchen = min(dist_kitchen, d)
+                if t in living_keywords:
+                    dist_living = min(dist_living, d)
+                if t in office_keywords:
+                    dist_office = min(dist_office, d)
 
-            min_dist = min(dist_area, dist_floor, dist_parking)
+            min_dist = min(dist_area, dist_floor, dist_parking, dist_bedroom, dist_bathroom, dist_kitchen, dist_living, dist_office)
             
             if min_dist < 999:
                 if min_dist == dist_area:
@@ -94,5 +121,15 @@ def extract_parameters(description: str) -> Dict[str, Any]:
                 elif min_dist == dist_parking:
                     if params["parking_spaces"] is None:
                         params["parking_spaces"] = int(num)
+                elif min_dist == dist_bedroom:
+                    params["rooms"]["bedrooms"] = int(num)
+                elif min_dist == dist_bathroom:
+                    params["rooms"]["bathrooms"] = int(num)
+                elif min_dist == dist_kitchen:
+                    params["rooms"]["kitchens"] = int(num)
+                elif min_dist == dist_living:
+                    params["rooms"]["living_rooms"] = int(num)
+                elif min_dist == dist_office:
+                    params["rooms"]["offices"] = int(num)
 
     return params
