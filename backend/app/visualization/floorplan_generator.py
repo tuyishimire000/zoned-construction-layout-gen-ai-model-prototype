@@ -207,11 +207,33 @@ def generate_floorplan(params: dict, compliance: dict) -> str:
     draw.rectangle([margin, margin, margin + 150, margin + 40], fill='#FFFFFF', outline='#000000')
     draw.text((margin + 10, margin + 10), f"Plot Size: {plot_size} sqm", fill='black')
     
-    if not room_items:
-        draw.text((bldg_x0 + 10, bldg_y0 + 10), f"Building Footprint", fill='black')
-        draw.text((bldg_x0 + 10, bldg_y0 + 30), f"Floors: {floors}", fill='black')
-        draw.text((bldg_x0 + 10, bldg_y0 + 50), f"Usage: {usage.capitalize()}", fill='black')
-        
+    # Draw Title Block
+    title_x = img_width - 200
+    title_y = margin
+    draw.rectangle([title_x, title_y, img_width - margin, title_y + 80], fill='#FFFFFF', outline='#000000', width=2)
+    draw.text((title_x + 10, title_y + 10), "PROJECT LAYOUT", fill='#000000')
+    draw.text((title_x + 10, title_y + 30), f"Usage: {usage.capitalize()}", fill='#424242')
+    draw.text((title_x + 10, title_y + 50), f"Floors: {floors}", fill='#424242')
+
+    # Draw Graphical Scale Bar (bottom right)
+    scale_length_m = 5 # 5 meters scale
+    scale_length_px = scale_length_m / px_to_m
+    scale_x1 = img_width - margin
+    scale_x0 = scale_x1 - scale_length_px
+    scale_y = img_height - margin - 20
+    
+    # Draw scale bar line
+    draw.line([scale_x0, scale_y, scale_x1, scale_y], fill='#000000', width=3)
+    # Draw tick marks
+    draw.line([scale_x0, scale_y - 5, scale_x0, scale_y + 5], fill='#000000', width=2)
+    draw.line([scale_x1, scale_y - 5, scale_x1, scale_y + 5], fill='#000000', width=2)
+    draw.line([scale_x0 + scale_length_px/2, scale_y - 3, scale_x0 + scale_length_px/2, scale_y + 3], fill='#000000', width=1)
+    
+    # Scale labels
+    draw.text((scale_x0 - 5, scale_y + 8), "0m", fill='#000000')
+    draw.text((scale_x1 - 10, scale_y + 8), f"{scale_length_m}m", fill='#000000')
+    draw.text((scale_x0 + scale_length_px/2 - 10, scale_y - 15), "SCALE", fill='#000000')
+    
     buffered = io.BytesIO()
     img.save(buffered, format="PNG")
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
