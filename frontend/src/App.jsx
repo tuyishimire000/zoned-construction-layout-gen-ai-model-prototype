@@ -89,7 +89,6 @@ function App() {
     <div className="container">
       <header>
         <h1>Smart Building Assessor</h1>
-        <p>AI-powered compliance checking and floor plan generation</p>
       </header>
 
       <div className="layout">
@@ -110,131 +109,25 @@ function App() {
 
           {error && <div style={{ color: 'var(--danger)', marginTop: '1rem' }}>{error}</div>}
 
-          {interactiveParams && (
-            <div className="interactive-controls">
-              <h3>Interactive Refinement</h3>
-              <div className="control-grid">
-                <div className="input-group">
-                  <label>Plot Size (sqm): {interactiveParams.plot_size}</label>
-                  <input 
-                    type="range" 
-                    min="100" max="5000" step="50"
-                    value={interactiveParams.plot_size || 500}
-                    onChange={(e) => handleParamChange('plot_size', e.target.value)}
-                  />
-                </div>
-                <div className="input-group">
-                  <label>Floors: {interactiveParams.floors}</label>
-                  <input 
-                    type="range" 
-                    min="1" max="15" step="1"
-                    value={interactiveParams.floors || 1}
-                    onChange={(e) => handleParamChange('floors', e.target.value)}
-                  />
-                </div>
-                <div className="input-group">
-                  <label>Parking Spaces: {interactiveParams.parking_spaces}</label>
-                  <input 
-                    type="range" 
-                    min="0" max="50" step="1"
-                    value={interactiveParams.parking_spaces || 0}
-                    onChange={(e) => handleParamChange('parking_spaces', e.target.value)}
-                  />
-                </div>
-                <div className="input-group">
-                  <label>Usage Type</label>
-                  <select 
-                    value={interactiveParams.usage || 'residential'}
-                    onChange={(e) => handleParamChange('usage', e.target.value)}
-                  >
-                    <option value="residential">Residential</option>
-                    <option value="commercial">Commercial</option>
-                    <option value="industrial">Industrial</option>
-                  </select>
-                </div>
-                
-                <div className="input-group">
-                  <label>Bedrooms: {interactiveParams.rooms?.bedrooms || 0}</label>
-                  <input type="range" min="0" max="10" step="1"
-                    value={interactiveParams.rooms?.bedrooms || 0}
-                    onChange={(e) => handleRoomChange('bedrooms', e.target.value)} />
-                </div>
-                <div className="input-group">
-                  <label>Bathrooms: {interactiveParams.rooms?.bathrooms || 0}</label>
-                  <input type="range" min="0" max="10" step="1"
-                    value={interactiveParams.rooms?.bathrooms || 0}
-                    onChange={(e) => handleRoomChange('bathrooms', e.target.value)} />
-                </div>
-                <div className="input-group">
-                  <label>Kitchens: {interactiveParams.rooms?.kitchens || 0}</label>
-                  <input type="range" min="0" max="5" step="1"
-                    value={interactiveParams.rooms?.kitchens || 0}
-                    onChange={(e) => handleRoomChange('kitchens', e.target.value)} />
-                </div>
-                <div className="input-group">
-                  <label>Living Rooms: {interactiveParams.rooms?.living_rooms || 0}</label>
-                  <input type="range" min="0" max="5" step="1"
-                    value={interactiveParams.rooms?.living_rooms || 0}
-                    onChange={(e) => handleRoomChange('living_rooms', e.target.value)} />
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Right Panel: Results */}
         <div className="panel">
-          <h2>Compliance Report</h2>
           
           {!result && !loading && (
             <p style={{ color: 'var(--text-muted)' }}>
-              Enter a description and click Analyze to generate a report.
+              Enter a description and click Analyze to generate a layout.
             </p>
           )}
 
           {loading && !result && (
             <div style={{ textAlign: 'center', padding: '2rem' }}>
-              <p>Extracting parameters and evaluating rules...</p>
+              <p>Generating architectural layout...</p>
             </div>
           )}
 
           {result && (
             <>
-              <div className={`status-badge ${result.compliance.compliant ? 'pass' : 'fail'}`}>
-                {result.compliance.compliant ? 'COMPLIANT' : 'NON-COMPLIANT'}
-              </div>
-
-              <div className="report-section">
-                <h3>Extracted Parameters</h3>
-                <ul>
-                  <li>Plot Size: <strong>{result.extracted_parameters.plot_size || 'N/A'} sqm</strong></li>
-                  <li>Floors: <strong>{result.extracted_parameters.floors || 'N/A'}</strong></li>
-                  <li>Usage: <strong>{result.extracted_parameters.usage || 'N/A'}</strong></li>
-                  <li>Parking: <strong>{result.extracted_parameters.parking_spaces || 'N/A'}</strong></li>
-                </ul>
-              </div>
-
-              {result.compliance.violated_regulations.length > 0 && (
-                <div className="report-section">
-                  <h3>Violations</h3>
-                  <ul className="violations">
-                    {result.compliance.violated_regulations.map((v, i) => (
-                      <li key={i}>{v}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              <div className="report-section">
-                <h3>Recommendations</h3>
-                <ul className="recommendations">
-                  {result.compliance.recommendations.map((r, i) => (
-                    <li key={i}>{r}</li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="report-section">
                 <h3>Schematic Floor Plan</h3>
                 <div className="image-container">
                   <img src={result.floor_plan_base64} alt="Floor plan" />
