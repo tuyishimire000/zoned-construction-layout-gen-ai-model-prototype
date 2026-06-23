@@ -132,7 +132,6 @@ function App() {
                 <div className="image-container">
                   <img src={result.floor_plan_base64} alt="Floor plan" />
                 </div>
-              </div>
             </>
           )}
         </div>
