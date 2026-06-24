@@ -7,15 +7,29 @@ try:
 except OSError:
     # Fallback if not downloaded yet
     import spacy.cli
+
     spacy.cli.download("en_core_web_sm")
     nlp = spacy.load("en_core_web_sm")
 
 word_to_num = {
-    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 
-    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
-    'eleven': 11, 'twelve': 12, 'fifteen': 15, 'twenty': 20,
-    'single': 1, 'double': 2
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "fifteen": 15,
+    "twenty": 20,
+    "single": 1,
+    "double": 2,
 }
+
 
 def parse_number(text: str) -> float | None:
     text = text.lower().strip()
@@ -26,9 +40,10 @@ def parse_number(text: str) -> float | None:
     except ValueError:
         return None
 
+
 def extract_parameters(description: str) -> Dict[str, Any]:
     doc = nlp(description)
-    
+
     params = {
         "plot_size": None,
         "floors": None,
@@ -39,10 +54,10 @@ def extract_parameters(description: str) -> Dict[str, Any]:
             "bathrooms": 0,
             "kitchens": 0,
             "living_rooms": 0,
-            "offices": 0
-        }
+            "offices": 0,
+        },
     }
-    
+
     # 1. Extract usage
     usages = ["residential", "commercial", "industrial", "mixed-use"]
     desc_lower = description.lower()
@@ -53,9 +68,17 @@ def extract_parameters(description: str) -> Dict[str, Any]:
 
     # 2. Extract numbers using a window-based proximity search
     # This is much more robust than strict phrase matchers
-    
+
     area_keywords = {"sqm", "square", "meters", "m2", "m²", "area", "plot", "size"}
-    floor_keywords = {"floors", "floor", "story", "stories", "storey", "levels", "level"}
+    floor_keywords = {
+        "floors",
+        "floor",
+        "story",
+        "stories",
+        "storey",
+        "levels",
+        "level",
+    }
     parking_keywords = {"parking", "cars", "vehicles", "spaces", "spots"}
     bedroom_keywords = {"bedroom", "bedrooms", "bed", "beds"}
     bathroom_keywords = {"bathroom", "bathrooms", "bath", "baths"}
@@ -80,18 +103,18 @@ def extract_parameters(description: str) -> Dict[str, Any]:
             dist_kitchen = 999
             dist_living = 999
             dist_office = 999
-            
+
             # Look at a window of tokens around the number
             window = 8
             for j in range(max(0, i - window), min(len(doc), i + window + 1)):
                 t = doc[j].text.lower()
-                
+
                 # Base distance is absolute difference in position
                 d = abs(i - j)
                 # Tie-breaker: keywords before the number are more likely labels
                 if j > i:
                     d += 0.1
-                    
+
                 if t in area_keywords:
                     dist_area = min(dist_area, d)
                 if t in floor_keywords:
@@ -109,8 +132,17 @@ def extract_parameters(description: str) -> Dict[str, Any]:
                 if t in office_keywords:
                     dist_office = min(dist_office, d)
 
-            min_dist = min(dist_area, dist_floor, dist_parking, dist_bedroom, dist_bathroom, dist_kitchen, dist_living, dist_office)
-            
+            min_dist = min(
+                dist_area,
+                dist_floor,
+                dist_parking,
+                dist_bedroom,
+                dist_bathroom,
+                dist_kitchen,
+                dist_living,
+                dist_office,
+            )
+
             if min_dist < 999:
                 if min_dist == dist_area:
                     # Prefer larger numbers for area if ambiguous
