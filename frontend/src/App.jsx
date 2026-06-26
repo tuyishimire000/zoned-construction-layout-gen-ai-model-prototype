@@ -7,8 +7,32 @@ function App() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   
+  // Loading state
+  const [loadingMsgIdx, setLoadingMsgIdx] = useState(0);
+  const loadingMessages = [
+    "Initializing AI Architect...",
+    "Analyzing natural language description...",
+    "Extracting room requirements and parameters...",
+    "Evaluating local zoning compliance...",
+    "Generating spatial layout & rendering blueprint..."
+  ];
+  
   // Interactive state
   const [interactiveParams, setInteractiveParams] = useState(null);
+
+  // Cycle loading messages
+  useEffect(() => {
+    if (!loading) {
+      setLoadingMsgIdx(0);
+      return;
+    }
+    
+    const interval = setInterval(() => {
+      setLoadingMsgIdx((prev) => (prev < loadingMessages.length - 1 ? prev + 1 : prev));
+    }, 1200);
+    
+    return () => clearInterval(interval);
+  }, [loading]);
 
   // Analyze natural language
   const handleAnalyze = async () => {
@@ -121,8 +145,9 @@ function App() {
           )}
 
           {loading && !result && (
-            <div style={{ textAlign: 'center', padding: '2rem' }}>
-              <p>Generating architectural layout...</p>
+            <div className="loading-container">
+              <div className="spinner"></div>
+              <p className="loading-message">{loadingMessages[loadingMsgIdx]}</p>
             </div>
           )}
 
