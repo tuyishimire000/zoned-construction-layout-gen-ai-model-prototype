@@ -48,15 +48,10 @@ function App() {
     
     const timeoutId = setTimeout(async () => {
       try {
-        // Re-construct a pseudo-description to force backend to use these params
-        const r = interactiveParams.rooms || {};
-        const roomDesc = `${r.bedrooms || 0} bedrooms, ${r.bathrooms || 0} bathrooms, ${r.kitchens || 0} kitchens, ${r.living_rooms || 0} living rooms, ${r.offices || 0} offices.`;
-        const fakeDesc = `${interactiveParams.plot_size} sqm ${interactiveParams.usage} plot with ${interactiveParams.floors} floors and parking for ${interactiveParams.parking_spaces}. ${roomDesc}`;
-        
-        const response = await fetch('http://localhost:8000/api/analyze', {
+        const response = await fetch('http://localhost:8001/api/render', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ description: fakeDesc }),
+          body: JSON.stringify(interactiveParams),
         });
         
         if (response.ok) {

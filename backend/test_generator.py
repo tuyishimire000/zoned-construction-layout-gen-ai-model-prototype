@@ -3,7 +3,7 @@ from app.main import app
 
 client = TestClient(app)
 
-desc = "I have a 600 sqm plot. I want a house with 3 bedrooms, 1 living room, 1 kitchen, and 2 bathrooms, plus parking for 2 cars."
+desc = "I want a house with no parking one bathroom kitchen outside and everything else you suggest on 1000sqm"
 
 try:
     response = client.post("/api/analyze", json={"description": desc})

@@ -10,6 +10,9 @@ class RoomCounts(BaseModel):
     kitchens: int = 0
     living_rooms: int = 0
     offices: int = 0
+    outside_kitchens: int = 0
+    outside_bathrooms: int = 0
+    maid_rooms: int = 0
 
 class ProjectParameters(BaseModel):
     plot_size: Optional[float] = None

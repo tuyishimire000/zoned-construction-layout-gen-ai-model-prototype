@@ -123,6 +123,8 @@ class FloorPlan:
     plot: Rect
     building: Rect
     rooms: List[Room] = field(default_factory=list)
+    annex_building: Optional[Rect] = None
+    annex_rooms: List[Room] = field(default_factory=list)
     site_features: List[SiteFeature] = field(default_factory=list)
 
     # Wall thickness in meters, used by renderers to draw double-line walls.

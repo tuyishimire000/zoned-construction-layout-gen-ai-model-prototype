@@ -21,6 +21,9 @@ STANDARD_ROOM_SIZES = {
     "kitchens": 10,
     "living_rooms": 20,
     "offices": 12,
+    "outside_kitchens": 8,
+    "outside_bathrooms": 4,
+    "maid_rooms": 9,
 }
 
 # New physical constraints
@@ -30,6 +33,9 @@ MIN_WIDTHS = {
     "bathrooms": 1.5,
     "kitchens": 2.5,
     "offices": 2.5,
+    "outside_kitchens": 2.0,
+    "outside_bathrooms": 1.5,
+    "maid_rooms": 2.5,
 }
 
 MIN_DEPTHS = {
@@ -38,6 +44,9 @@ MIN_DEPTHS = {
     "bathrooms": 2.0,
     "kitchens": 3.0,
     "offices": 3.0,
+    "outside_kitchens": 2.5,
+    "outside_bathrooms": 2.0,
+    "maid_rooms": 3.0,
 }
 
 FURNITURE_SIZES = {
@@ -72,6 +81,12 @@ def _split_into_wings(
     # Distribute each type evenly
     for rtype, items in groups.items():
         for i, item in enumerate(items):
+            # Force Living Room to the bottom wing (front of the house)
+            if rtype == "living_rooms":
+                bottom.append(item)
+                bottom_weight += item[1]
+                continue
+                
             # Try to balance weight overall, but also distribute the type
             # Alternate based on index to ensure even spread of instances
             if i % 2 == 0:
@@ -92,29 +107,33 @@ def _split_into_wings(
     return top, bottom
 
 
-def _build_furniture(rtype: str, room: Rect) -> List[Furniture]:
-    fx = room.x + ROOM_PADDING
-    fy = room.y + ROOM_PADDING
-
-    if rtype == "bedrooms":
+def _build_furniture(rtype: str, room: Rect, is_top_wing: bool) -> List[Furniture]:
+    if rtype in ("bedrooms", "maid_rooms"):
         w, h = FURNITURE_SIZES["bed"]
-        return [Furniture("bed", Rect(fx, fy, w, h))]
-    if rtype == "bathrooms":
+        # Center bed horizontally, placed against the top wall
+        return [Furniture("bed", Rect(room.cx - w / 2, room.y + ROOM_PADDING, w, h))]
+    if rtype in ("bathrooms", "outside_bathrooms"):
         w, h = FURNITURE_SIZES["bathtub"]
-        return [Furniture("bathtub", Rect(fx, fy, w, h))]
-    if rtype == "kitchens":
-        return [
-            Furniture(
-                "kitchen_counter",
-                Rect(room.x + 0.2, room.y + 0.2, max(room.width - 0.4, 0.4), 0.6),
-            )
-        ]
+        # Place bathtub against the right wall, centered vertically
+        bx = room.right - w - 0.1
+        by = room.cy - h / 2
+        return [Furniture("bathtub", Rect(bx, by, w, h))]
+    if rtype in ("kitchens", "outside_kitchens"):
+        # Kitchen counter spans the exterior wall (under the window)
+        cw = max(room.width - 0.4, 0.4)
+        ch = 0.6
+        cx = room.cx - cw / 2
+        cy = room.y + 0.2 if is_top_wing else room.bottom - ch - 0.2
+        return [Furniture("kitchen_counter", Rect(cx, cy, cw, ch))]
     if rtype == "living_rooms":
         w, h = FURNITURE_SIZES["sofa"]
-        return [Furniture("sofa", Rect(fx, fy, min(w, room.width - 0.4), h))]
+        # Center the sofa perfectly in the room
+        return [Furniture("sofa", Rect(room.cx - w / 2, room.cy - h / 2, min(w, room.width - 0.4), h))]
     if rtype == "offices":
         w, h = FURNITURE_SIZES["desk"]
-        return [Furniture("desk", Rect(fx, fy, w, h))]
+        # Center the desk horizontally, near the exterior wall
+        dy = room.y + 1.0 if is_top_wing else room.bottom - h - 1.0
+        return [Furniture("desk", Rect(room.cx - w / 2, dy, w, h))]
     return []
 
 
@@ -234,7 +253,7 @@ def _layout_wing(
                 label=_singular_label(rtype),
                 bounds=bounds,
                 openings=_build_openings(bounds, rtype, is_top_wing),
-                furniture=_build_furniture(rtype, bounds),
+                furniture=_build_furniture(rtype, bounds, is_top_wing),
             )
         )
         cursor_x += room_width
@@ -303,9 +322,15 @@ def build_floorplan(params: dict, compliance: dict) -> FloorPlan:
     building = Rect(left_setback, back_setback, building_w, building_h)
 
     room_items: List[Tuple[str, float]] = []
+    annex_items: List[Tuple[str, float]] = []
+    annex_types = {"outside_kitchens", "outside_bathrooms", "maid_rooms"}
+    
     for rtype, count in rooms.items():
         for _ in range(int(count)):
-            room_items.append((rtype, STANDARD_ROOM_SIZES.get(rtype, 10)))
+            if rtype in annex_types:
+                annex_items.append((rtype, STANDARD_ROOM_SIZES.get(rtype, 10)))
+            else:
+                room_items.append((rtype, STANDARD_ROOM_SIZES.get(rtype, 10)))
 
     top_rooms, bottom_rooms = _split_into_wings(room_items)
 
@@ -319,20 +344,38 @@ def build_floorplan(params: dict, compliance: dict) -> FloorPlan:
     bottom_w_req = req_width(bottom_rooms)
     top_d_req = req_depth(top_rooms) if top_rooms else 0
     bottom_d_req = req_depth(bottom_rooms) if bottom_rooms else 0
+    
+    annex_w_req = req_width(annex_items)
+    annex_d_req = req_depth(annex_items) if annex_items else 0
 
     corridor_h = CORRIDOR_HEIGHT if room_items else 0
-    total_w_req = max(top_w_req, bottom_w_req)
-    total_h_req = top_d_req + corridor_h + bottom_d_req
+    total_w_req = max(top_w_req, bottom_w_req, annex_w_req)
+    
+    # If there are annexes, we need: annex depth + 2m gap + main house depth
+    annex_reserved_h = (annex_d_req + 2.0) if annex_items else 0.0
+    total_h_req = top_d_req + corridor_h + bottom_d_req + annex_reserved_h
 
     if building_w < total_w_req or building_h < total_h_req:
-        raise ValueError(f"The required rooms need a building of at least {total_w_req:.1f}x{total_h_req:.1f}m. After setbacks, plot only allows {building_w:.1f}x{building_h:.1f}m. Please reduce rooms or increase plot size.")
+        raise ValueError(f"The required rooms need a building depth of {total_h_req:.1f}m. After setbacks, plot only allows {building_h:.1f}m. Please reduce rooms or increase plot size.")
 
     placed_rooms: List[Room] = []
     corridor: SiteFeature | None = None
+    
+    annex_building: Rect | None = None
+    placed_annex_rooms: List[Room] = []
+
+    if annex_items:
+        # Place annex at the very back (starting at building.y)
+        annex_h = annex_d_req
+        annex_building = Rect(building.x, building.y, building.width, annex_h)
+        placed_annex_rooms = _layout_wing(annex_building, annex_items, is_top_wing=True)
+        
+        # Shrink the main building down to leave a 2m gap
+        building = Rect(building.x, annex_building.bottom + 2.0, building.width, building.height - annex_h - 2.0)
 
     if room_items:
-        # Distribute remaining height
-        rem_h = max(0.0, building_h - corridor_h)
+        # Distribute remaining height in the main building
+        rem_h = max(0.0, building.height - corridor_h)
         # Give top and bottom proportional to their required depth
         if top_d_req + bottom_d_req > 0:
             top_wing_h = rem_h * (top_d_req / (top_d_req + bottom_d_req))
@@ -353,6 +396,8 @@ def build_floorplan(params: dict, compliance: dict) -> FloorPlan:
         plot=plot,
         building=building,
         rooms=placed_rooms,
+        annex_building=annex_building,
+        annex_rooms=placed_annex_rooms,
         plot_size_sqm=plot_size,
         floors=floors,
         usage=usage,
@@ -381,8 +426,17 @@ def build_floorplan(params: dict, compliance: dict) -> FloorPlan:
         plan.site_features.append(corridor)
     plan.site_features += _build_parking(plot, parking)
 
-    # Path from entrance to parking
-    if parking > 0 and corridor:
-        plan.site_features.append(SiteFeature(FeatureType.PATH, Rect(building.x, corridor_rect.bottom, 1.5, plot.height - corridor_rect.bottom)))
+    # Path from Living Room front door to street
+    front_door_x = building.x + building.width / 2 - 0.75
+    front_door_y = building.bottom
+    for r in plan.rooms:
+        if r.type == "living_rooms":
+            door_total = min(2.0, r.bounds.width * 0.45)
+            left_center = r.bounds.x + r.bounds.width * 0.25
+            front_door_x = left_center - 0.75
+            front_door_y = r.bounds.bottom
+            break
+            
+    plan.site_features.append(SiteFeature(FeatureType.PATH, Rect(front_door_x, front_door_y, 1.5, plot.height - front_door_y)))
 
     return plan

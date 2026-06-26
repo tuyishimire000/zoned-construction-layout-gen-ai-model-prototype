@@ -169,6 +169,12 @@ def _draw_exterior_walls(draw, t, plan: FloorPlan):
     inner = Rect(b.x + wt, b.y + wt, b.width - 2 * wt, b.height - 2 * wt)
     draw.rectangle(t.box(b), outline=WALL_DARK, width=3)
     draw.rectangle(t.box(inner), outline=WALL_DARK, width=2)
+    
+    if plan.annex_building:
+        ab = plan.annex_building
+        ainner = Rect(ab.x + wt, ab.y + wt, ab.width - 2 * wt, ab.height - 2 * wt)
+        draw.rectangle(t.box(ab), outline=WALL_DARK, width=3)
+        draw.rectangle(t.box(ainner), outline=WALL_DARK, width=2)
 
 
 # --- Openings: windows and doors ------------------------------------------ #
@@ -360,19 +366,28 @@ def render_png_bytes(plan: FloorPlan) -> bytes:
 
     # Building shell and rooms.
     draw.rectangle(t.box(plan.building), fill=BUILDING_FILL)
+    if plan.annex_building:
+        draw.rectangle(t.box(plan.annex_building), fill=BUILDING_FILL)
+        
     for f in plan.site_features:
         if f.type == FeatureType.CORRIDOR:
             _draw_site_feature(draw, t, f)
-    for room in plan.rooms:
+            
+    all_rooms = plan.rooms + plan.annex_rooms
+    for room in all_rooms:
         _draw_room_fill(draw, t, room)
-    for room in plan.rooms:
+    for room in all_rooms:
         for item in room.furniture:
             _draw_furniture(draw, t, item)
 
     # Walls, then openings cut into them.
-    _draw_interior_walls(draw, t, plan)
+    # Interior walls only need to be drawn for rooms.
+    width = max(2, int(plan.wall_thickness * t.scale * 0.7))
+    for room in all_rooms:
+        draw.rectangle(t.box(room.bounds), outline=WALL_THIN, width=width)
+        
     _draw_exterior_walls(draw, t, plan)
-    for room in plan.rooms:
+    for room in all_rooms:
         for o in room.openings:
             if o.type == OpeningType.WINDOW:
                 _draw_window(draw, t, plan, o)
@@ -381,7 +396,7 @@ def render_png_bytes(plan: FloorPlan) -> bytes:
                 _draw_door(draw, t, plan, o)
 
     # Labels and annotations.
-    for room in plan.rooms:
+    for room in all_rooms:
         _draw_room_label(draw, t, room)
     _draw_dimensions(draw, t, plan)
     _draw_north(draw)

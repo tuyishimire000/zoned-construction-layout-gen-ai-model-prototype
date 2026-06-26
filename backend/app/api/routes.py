@@ -72,3 +72,33 @@ def analyze_project(request: ProjectDescriptionRequest):
         floor_plan_base64=img_base64,
         report_data=report_data,
     )
+
+
+@router.post("/render", response_model=AnalysisResponse)
+def render_project(params: ProjectParameters):
+    """Bypasses NLP and directly renders the layout from parameters."""
+    params_dict = params.model_dump()
+    
+    try:
+        compliance_dict = validate_project(params_dict)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in compliance validation: {str(e)}")
+
+    try:
+        img_base64 = generate_floorplan(params_dict, compliance_dict)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in image generation: {str(e)}")
+
+    report_data = {
+        "title": "Smart Building Compliance Report",
+        "summary": f"A proposed {params_dict.get('usage', 'residential')} building with {params_dict.get('floors', 1)} floors on a {params_dict.get('plot_size', 'unknown')} sqm plot.",
+    }
+
+    return AnalysisResponse(
+        extracted_parameters=params,
+        compliance=ComplianceResult(**compliance_dict),
+        floor_plan_base64=img_base64,
+        report_data=report_data,
+    )
