@@ -15,7 +15,7 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('http://localhost:8000/api/analyze', {
+      const response = await fetch('http://localhost:8001/api/analyze', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -24,7 +24,12 @@ function App() {
       });
       
       if (!response.ok) {
-        throw new Error('Failed to analyze project');
+        let errorMsg = 'Failed to analyze project';
+        try {
+          const errorData = await response.json();
+          if (errorData.detail) errorMsg = errorData.detail;
+        } catch (e) {}
+        throw new Error(errorMsg);
       }
       
       const data = await response.json();

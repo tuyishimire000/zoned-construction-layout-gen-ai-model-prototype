@@ -51,6 +51,10 @@ def analyze_project(request: ProjectDescriptionRequest):
     # 3. Floor Plan Generation
     try:
         img_base64 = generate_floorplan(params_dict, compliance_dict)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400, detail=str(e)
+        )
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error in image generation: {str(e)}"
