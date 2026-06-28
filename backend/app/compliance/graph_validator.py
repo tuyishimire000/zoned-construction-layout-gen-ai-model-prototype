@@ -91,7 +91,7 @@ def validate_and_repair_graph(params: Dict[str, Any]) -> Tuple[Dict[str, Any], L
             degree_map[ra] = degree_map.get(ra, 0) + 1
             degree_map[rb] = degree_map.get(rb, 0) + 1
             
-        useless_corridors = [r["id"] for r in rooms if r.get("room_type") == "corridors" and degree_map.get(r["id"], 0) < 2]
+        useless_corridors = [r["id"] for r in rooms if "corridor" in r.get("room_type", "").lower() and degree_map.get(r["id"], 0) < 2]
         
         if useless_corridors:
             changed = True

@@ -165,7 +165,7 @@ def _solve_grid(nodes: List[Dict], edges: List[Dict], iterations: int = 20) -> T
             w = MIN_WIDTHS.get(rtype, 3.0)
             h = MIN_DEPTHS.get(rtype, 3.0)
             
-            if rtype == "corridors":
+            if "corridor" in rtype.lower():
                 # Cap dimensions based on grid neighbors
                 has_hx = (gx-1, gy) in grid or (gx+1, gy) in grid
                 has_vy = (gx, gy-1) in grid or (gx, gy+1) in grid
@@ -254,24 +254,32 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
         type_a, type_b = node_map[ra], node_map[rb]
         types_set = {type_a, type_b}
         
+        def is_open(t):
+            t = t.lower()
+            return "corridor" in t or "living" in t or "dining" in t or "kitchen" in t
+            
+        def is_corridor(t): return "corridor" in t.lower()
+        def is_living(t): return "living" in t.lower()
+        def is_dining(t): return "dining" in t.lower()
+        def is_bath(t): return "bath" in t.lower()
+        
         is_passage = False
         door_len = 0.9
         
-        open_spaces = {"corridors", "living_rooms", "dining_rooms", "kitchens", "outside_kitchens"}
-        if types_set.issubset(open_spaces):
+        if all(is_open(t) for t in types_set):
             is_passage = True
-            if "living_rooms" in types_set:
+            if any(is_living(t) for t in types_set):
                 door_len = 1.6
-            elif types_set == {"corridors"}:
+            elif all(is_corridor(t) for t in types_set):
                 door_len = 1.2
-            elif "dining_rooms" in types_set:
+            elif any(is_dining(t) for t in types_set):
                 door_len = 1.2
             else:
                 door_len = 1.0
         else:
-            if "bathrooms" in types_set or "outside_bathrooms" in types_set:
+            if any(is_bath(t) for t in types_set):
                 door_len = 0.7
-            elif "living_rooms" in types_set:
+            elif any(is_living(t) for t in types_set):
                 door_len = 1.0
             else:
                 door_len = 0.9
