@@ -7,15 +7,40 @@ function App() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   
+  // Loading state
+  const [loadingMsgIdx, setLoadingMsgIdx] = useState(0);
+  const loadingMessages = [
+    "Initializing AI Architect...",
+    "Analyzing natural language description...",
+    "Extracting room requirements and parameters...",
+    "Evaluating local zoning compliance...",
+    "Generating spatial layout & rendering blueprint..."
+  ];
+  
   // Interactive state
   const [interactiveParams, setInteractiveParams] = useState(null);
+
+  // Cycle loading messages
+  useEffect(() => {
+    if (!loading) {
+      setLoadingMsgIdx(0);
+      return;
+    }
+    
+    const interval = setInterval(() => {
+      setLoadingMsgIdx((prev) => (prev < loadingMessages.length - 1 ? prev + 1 : prev));
+    }, 1200);
+    
+    return () => clearInterval(interval);
+  }, [loading]);
 
   // Analyze natural language
   const handleAnalyze = async () => {
     setLoading(true);
+    setResult(null); // Clear result so loading spinner shows again during regenerate
     setError(null);
     try {
-      const response = await fetch('http://localhost:8000/api/analyze', {
+      const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -24,14 +49,32 @@ function App() {
       });
       
       if (!response.ok) {
-        throw new Error('Failed to analyze project');
+        let errorMsg = 'Failed to analyze project';
+        if (response.status === 429) {
+            errorMsg = "API Rate Limit Exceeded. Please contact the system administrator.";
+        }
+        try {
+          const errorData = await response.json();
+          if (errorData.detail) {
+            if (typeof errorData.detail === 'string' && errorData.detail.includes('429')) {
+              errorMsg = "API Rate Limit Exceeded. Please contact the system administrator.";
+            } else if (response.status !== 429) {
+              errorMsg = errorData.detail;
+            }
+          }
+        } catch (e) {}
+        throw new Error(errorMsg);
       }
       
       const data = await response.json();
       setResult(data);
       setInteractiveParams(data.extracted_parameters);
     } catch (err) {
-      setError(err.message);
+      if (err.message.includes('429') || err.message.includes('RESOURCE_EXHAUSTED')) {
+         setError("API Rate Limit Exceeded. Please contact the system administrator.");
+      } else {
+         setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -43,15 +86,10 @@ function App() {
     
     const timeoutId = setTimeout(async () => {
       try {
-        // Re-construct a pseudo-description to force backend to use these params
-        const r = interactiveParams.rooms || {};
-        const roomDesc = `${r.bedrooms || 0} bedrooms, ${r.bathrooms || 0} bathrooms, ${r.kitchens || 0} kitchens, ${r.living_rooms || 0} living rooms, ${r.offices || 0} offices.`;
-        const fakeDesc = `${interactiveParams.plot_size} sqm ${interactiveParams.usage} plot with ${interactiveParams.floors} floors and parking for ${interactiveParams.parking_spaces}. ${roomDesc}`;
-        
-        const response = await fetch('http://localhost:8000/api/analyze', {
+        const response = await fetch('/api/render', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ description: fakeDesc }),
+          body: JSON.stringify(interactiveParams),
         });
         
         if (response.ok) {
@@ -107,30 +145,44 @@ function App() {
             {loading ? 'Analyzing...' : 'Analyze Project'}
           </button>
 
-          {error && <div style={{ color: 'var(--danger)', marginTop: '1rem' }}>{error}</div>}
+          {error && (
+            <div style={{ color: '#d32f2f', backgroundColor: '#ffebee', padding: '1rem', borderRadius: '4px', marginTop: '1rem', border: '1px solid #f44336' }}>
+              <strong>Error:</strong> {error}
+            </div>
+          )}
 
         </div>
 
         {/* Right Panel: Results */}
         <div className="panel">
           
-          {!result && !loading && (
+          {!result && !loading && !error && (
             <p style={{ color: 'var(--text-muted)' }}>
               Enter a description and click Analyze to generate a layout.
             </p>
           )}
 
-          {loading && !result && (
-            <div style={{ textAlign: 'center', padding: '2rem' }}>
-              <p>Generating architectural layout...</p>
+          {loading && (
+            <div className="loading-container">
+              <div className="spinner"></div>
+              <p className="loading-message">{loadingMessages[loadingMsgIdx]}</p>
             </div>
           )}
 
-          {result && (
+          {result && !loading && (
             <>
-                <h3>Schematic Floor Plan</h3>
+                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem'}}>
+                    <h3 style={{margin: 0}}>Schematic Floor Plan</h3>
+                    <button className="btn" onClick={handleAnalyze} disabled={loading} style={{display: 'flex', alignItems: 'center', gap: '6px', padding: '0.5rem 1rem', fontSize: '0.9rem'}}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.92-10.26l5.57 5.57"/></svg>
+                        Regenerate
+                    </button>
+                </div>
                 <div className="image-container">
                   <img src={result.floor_plan_base64} alt="Floor plan" />
+                </div>
+                <div style={{marginTop: '1rem', padding: '1rem', backgroundColor: 'rgba(59, 130, 246, 0.1)', borderRadius: '8px', color: '#1e40af', fontSize: '0.95rem'}}>
+                    <strong>Not satisfied with the current design?</strong> Since our layout engine is generative, you can simply click the <strong>Regenerate</strong> button above to have the AI explore a completely new architectural arrangement using the same prompt!
                 </div>
             </>
           )}
