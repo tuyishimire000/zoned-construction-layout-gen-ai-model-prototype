@@ -35,9 +35,13 @@ def validate_and_repair_graph(params: Dict[str, Any]) -> Tuple[Dict[str, Any], L
             continue
             
         types_set = {type_a, type_b}
+        is_bed = any("bedroom" in t.lower() for t in types_set)
+        is_bath = any("bathroom" in t.lower() for t in types_set)
+        is_living = any("living" in t.lower() for t in types_set)
+        is_kitchen = any("kitchen" in t.lower() for t in types_set)
         
-        is_privacy_violation = ("bedrooms" in types_set) and ("kitchens" in types_set or "living_rooms" in types_set)
-        is_sanitation_violation = ("bathrooms" in types_set) and ("kitchens" in types_set or "living_rooms" in types_set)
+        is_privacy_violation = is_bed and (is_kitchen or is_living)
+        is_sanitation_violation = is_bath and (is_kitchen or is_living)
         
         if is_privacy_violation or is_sanitation_violation:
             # We must break this connection and insert a corridor
@@ -74,10 +78,33 @@ def validate_and_repair_graph(params: Dict[str, Any]) -> Tuple[Dict[str, Any], L
         final_connections = [c for i, c in enumerate(connections) if i not in connections_to_remove]
         final_connections.extend(new_connections)
         graph["connections"] = final_connections
+    else:
+        final_connections = connections
+
+    # Prune unnecessary corridors (degree < 2)
+    changed = True
+    while changed:
+        changed = False
+        degree_map = {}
+        for conn in final_connections:
+            ra, rb = conn["room_a"], conn["room_b"]
+            degree_map[ra] = degree_map.get(ra, 0) + 1
+            degree_map[rb] = degree_map.get(rb, 0) + 1
+            
+        useless_corridors = [r["id"] for r in rooms if r.get("room_type") == "corridors" and degree_map.get(r["id"], 0) < 2]
         
-        # Update the params
-        graph["rooms"] = rooms
-        params["graph"] = graph
-        params["rooms"] = room_counts
+        if useless_corridors:
+            changed = True
+            rooms = [r for r in rooms if r["id"] not in useless_corridors]
+            final_connections = [c for c in final_connections if c["room_a"] not in useless_corridors and c["room_b"] not in useless_corridors]
+            for c in useless_corridors:
+                room_counts["corridors"] = max(0, room_counts.get("corridors", 0) - 1)
+                issues_fixed.append(f"AI Connectivity Fix: Pruned unnecessary dead-end corridor ({c}).")
+
+    # Update the params
+    graph["connections"] = final_connections
+    graph["rooms"] = rooms
+    params["graph"] = graph
+    params["rooms"] = room_counts
         
     return params, issues_fixed

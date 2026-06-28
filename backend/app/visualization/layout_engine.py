@@ -106,7 +106,6 @@ def _solve_grid(nodes: List[Dict], edges: List[Dict], iterations: int = 20) -> T
     node_map = {n['id']: n for n in nodes}
     
     for _ in range(iterations):
-        # Add slight randomness to sort order
         sorted_nodes = sorted(nodes, key=lambda n: len(adj[n['id']]) + random.random(), reverse=True)
         grid = {}
         placed = {}
@@ -149,7 +148,6 @@ def _solve_grid(nodes: List[Dict], edges: List[Dict], iterations: int = 20) -> T
                 score += 0.01 * (abs(cx) + abs(cy))
                 cell_scores.append((score, (cx, cy)))
                 
-            # Randomly pick among the top tied scores to explore different topologies
             if cell_scores:
                 min_s = min(s for s, c in cell_scores)
                 top_cells = [c for s, c in cell_scores if s <= min_s + 0.02]
@@ -161,32 +159,80 @@ def _solve_grid(nodes: List[Dict], edges: List[Dict], iterations: int = 20) -> T
             
         if not placed: continue
             
-        min_x = min(x for x,y in placed.values() if x is not None)
-        max_x = max(x for x,y in placed.values() if x is not None)
-        min_y = min(y for x,y in placed.values() if y is not None)
-        max_y = max(y for x,y in placed.values() if y is not None)
-        
-        col_widths = {}
-        row_heights = {}
-        
-        for x in range(min_x, max_x + 1):
-            ws = [MIN_WIDTHS.get(node_map[grid[(x,y)]]['type'], 2.0) for y in range(min_y, max_y + 1) if (x,y) in grid]
-            col_widths[x] = max(ws) if ws else 0
-        for y in range(min_y, max_y + 1):
-            hs = [MIN_DEPTHS.get(node_map[grid[(x,y)]]['type'], 3.0) for x in range(min_x, max_x + 1) if (x,y) in grid]
-            row_heights[y] = max(hs) if hs else 0
-            
         rects = {}
-        cur_y = 0
-        for y in range(min_y, max_y + 1):
-            cur_x = 0
-            for x in range(min_x, max_x + 1):
-                if (x,y) in grid:
-                    rects[grid[(x,y)]] = Rect(cur_x, cur_y, col_widths[x], row_heights[y])
-                cur_x += col_widths[x]
-            cur_y += row_heights[y]
+        for nid, (gx, gy) in placed.items():
+            rtype = node_map[nid]['type']
+            w = MIN_WIDTHS.get(rtype, 3.0)
+            h = MIN_DEPTHS.get(rtype, 3.0)
             
-        # Score this candidate
+            if rtype == "corridors":
+                # Cap dimensions based on grid neighbors
+                has_hx = (gx-1, gy) in grid or (gx+1, gy) in grid
+                has_vy = (gx, gy-1) in grid or (gx, gy+1) in grid
+                if has_hx and not has_vy:
+                    h = min(1.5, h)
+                elif has_vy and not has_hx:
+                    w = min(1.5, w)
+                else:
+                    w = min(1.5, w)
+                    h = min(1.5, h)
+                    
+            rects[nid] = Rect(gx * 4.0, gy * 4.0, w, h)
+            
+        # Physics Relaxation Loop (150 iterations)
+        for _step in range(150):
+            # Attractive forces based on graph edges
+            for e in edges:
+                if e['room_a'] in rects and e['room_b'] in rects:
+                    ra, rb = rects[e['room_a']], rects[e['room_b']]
+                    dx = rb.cx - ra.cx
+                    dy = rb.cy - ra.cy
+                    if abs(dx) > abs(dy):
+                        target_dist = (ra.width + rb.width)/2
+                        force = (abs(dx) - target_dist) * 0.2
+                        shift_x = force * (1 if dx > 0 else -1)
+                        ra.x += shift_x
+                        rb.x -= shift_x
+                        shift_y = dy * 0.1
+                        ra.y += shift_y
+                        rb.y -= shift_y
+                    else:
+                        target_dist = (ra.height + rb.height)/2
+                        force = (abs(dy) - target_dist) * 0.2
+                        shift_y = force * (1 if dy > 0 else -1)
+                        ra.y += shift_y
+                        rb.y -= shift_y
+                        shift_x = dx * 0.1
+                        ra.x += shift_x
+                        rb.x -= shift_x
+                        
+            # Repulsive forces (prevent overlap)
+            for nid1, r1 in rects.items():
+                for nid2, r2 in rects.items():
+                    if nid1 >= nid2: continue
+                    dx = r2.cx - r1.cx
+                    dy = r2.cy - r1.cy
+                    min_x = (r1.width + r2.width)/2
+                    min_y = (r1.height + r2.height)/2
+                    if abs(dx) < min_x and abs(dy) < min_y:
+                        pen_x = min_x - abs(dx)
+                        pen_y = min_y - abs(dy)
+                        if pen_x < pen_y:
+                            shift = (pen_x / 2 + 0.05) * (1 if dx > 0 else -1)
+                            r1.x -= shift
+                            r2.x += shift
+                        else:
+                            shift = (pen_y / 2 + 0.05) * (1 if dy > 0 else -1)
+                            r1.y -= shift
+                            r2.y += shift
+
+        # Snap to 0.1 grid
+        for r in rects.values():
+            r.x = round(r.x * 10) / 10
+            r.y = round(r.y * 10) / 10
+            r.width = round(r.width * 10) / 10
+            r.height = round(r.height * 10) / 10
+            
         score = _score_layout(rects, edges)
         if score < best_score:
             best_score = score
@@ -198,6 +244,8 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
     openings = {n['id']: [] for n in nodes}
     node_map = {n['id']: n['type'] for n in nodes}
     
+    room_doors_count = {n['id']: 0 for n in nodes}
+    
     for e in edges:
         ra, rb = e['room_a'], e['room_b']
         if ra not in room_rects or rb not in room_rects: continue
@@ -207,25 +255,35 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
         types_set = {type_a, type_b}
         
         is_passage = False
-        door_len = 0.8
+        door_len = 0.9
         
-        if "living_rooms" in types_set:
+        open_spaces = {"corridors", "living_rooms", "dining_rooms", "kitchens", "outside_kitchens"}
+        if types_set.issubset(open_spaces):
             is_passage = True
-            door_len = 1.6
-        elif "dining_rooms" in types_set:
-            is_passage = True
-            door_len = 1.0
-        elif "kitchens" in types_set or "outside_kitchens" in types_set:
-            is_passage = True
-            door_len = 0.9
-            
-        if not is_passage:
+            if "living_rooms" in types_set:
+                door_len = 1.6
+            elif types_set == {"corridors"}:
+                door_len = 1.2
+            elif "dining_rooms" in types_set:
+                door_len = 1.2
+            else:
+                door_len = 1.0
+        else:
             if "bathrooms" in types_set or "outside_bathrooms" in types_set:
                 door_len = 0.7
+            elif "living_rooms" in types_set:
+                door_len = 1.0
             else:
-                door_len = 0.8
+                door_len = 0.9
                 
         op_type = OpeningType.PASSAGE if is_passage else OpeningType.DOOR
+        
+        def add_door(o_type, dx, dy, dlen, ori, swing):
+            openings[ra].append(Opening(o_type, dx, dy, dlen, ori, swing=swing, style="swing"))
+            openings[rb].append(Opening(o_type, dx, dy, dlen, ori, swing=swing, style="swing"))
+            if o_type == OpeningType.DOOR:
+                room_doors_count[ra] += 1
+                room_doors_count[rb] += 1
         
         if abs(r1.right - r2.x) < 0.1 or abs(r2.right - r1.x) < 0.1:
             # Vertical wall
@@ -235,8 +293,7 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
             if ye - ys >= door_len:
                 dy = ys + (ye - ys - door_len) / 2
                 swing = "right" if is_r1_left else "left"
-                openings[ra].append(Opening(op_type, x, dy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
-                openings[rb].append(Opening(op_type, x, dy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
+                add_door(op_type, x, dy, door_len, Orientation.VERTICAL, swing)
         elif abs(r1.bottom - r2.y) < 0.1 or abs(r2.bottom - r1.y) < 0.1:
             # Horizontal wall
             is_r1_top = abs(r1.bottom - r2.y) < 0.1
@@ -245,37 +302,119 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
             if xe - xs >= door_len:
                 dx = xs + (xe - xs - door_len) / 2
                 swing = "down" if is_r1_top else "up"
-                openings[ra].append(Opening(op_type, dx, y, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
-                openings[rb].append(Opening(op_type, dx, y, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
+                add_door(op_type, dx, y, door_len, Orientation.HORIZONTAL, swing)
 
-    # Building bounding box to detect exterior walls
-    min_x = min(r.x for r in room_rects.values()) if room_rects else 0
-    max_x = max(r.right for r in room_rects.values()) if room_rects else 0
-    min_y = min(r.y for r in room_rects.values()) if room_rects else 0
-    max_y = max(r.bottom for r in room_rects.values()) if room_rects else 0
+    # Fallback: if a room has no doors/passages but touches another room, force a door!
+    for nid, r in room_rects.items():
+        if room_doors_count[nid] == 0:
+            for other_id, other_r in room_rects.items():
+                if nid == other_id: continue
+                
+                type_a, type_b = node_map[nid], node_map[other_id]
+                types_set = {type_a, type_b}
+                is_bed = any("bedroom" in t.lower() for t in types_set)
+                is_bath = any("bathroom" in t.lower() for t in types_set)
+                is_living = any("living" in t.lower() for t in types_set)
+                is_kitchen = any("kitchen" in t.lower() for t in types_set)
+                
+                # Forbid emergency fallback doors between high privacy zones
+                if (is_bed or is_bath) and (is_kitchen or is_living):
+                    continue
+                    
+                # check if they touch
+                if abs(r.right - other_r.x) < 0.1 or abs(other_r.right - r.x) < 0.1:
+                    is_r_left = abs(r.right - other_r.x) < 0.1
+                    x = r.right if is_r_left else other_r.right
+                    ys, ye = max(r.y, other_r.y), min(r.bottom, other_r.bottom)
+                    door_len = 0.8
+                    if ye - ys >= door_len:
+                        dy = ys + (ye - ys - door_len) / 2
+                        swing = "right" if is_r_left else "left"
+                        openings[nid].append(Opening(OpeningType.DOOR, x, dy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
+                        openings[other_id].append(Opening(OpeningType.DOOR, x, dy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
+                        room_doors_count[nid] += 1
+                        break
+                elif abs(r.bottom - other_r.y) < 0.1 or abs(other_r.bottom - r.y) < 0.1:
+                    is_r_top = abs(r.bottom - other_r.y) < 0.1
+                    y = r.bottom if is_r_top else other_r.bottom
+                    xs, xe = max(r.x, other_r.x), min(r.right, other_r.right)
+                    door_len = 0.8
+                    if xe - xs >= door_len:
+                        dx = xs + (xe - xs - door_len) / 2
+                        swing = "down" if is_r_top else "up"
+                        openings[nid].append(Opening(OpeningType.DOOR, dx, y, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
+                        openings[other_id].append(Opening(OpeningType.DOOR, dx, y, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
+                        room_doors_count[nid] += 1
+                        break
 
+    # Extents detection for Windows
+    def get_exposed_intervals(r, edge, all_rects):
+        if edge in ('top', 'bottom'):
+            main_bounds = [r.x, r.right]
+        else:
+            main_bounds = [r.y, r.bottom]
+            
+        covered = []
+        for other in all_rects:
+            if other == r: continue
+            if edge == 'top' and abs(other.bottom - r.y) < 0.1:
+                covered.append((max(r.x, other.x), min(r.right, other.right)))
+            elif edge == 'bottom' and abs(other.y - r.bottom) < 0.1:
+                covered.append((max(r.x, other.x), min(r.right, other.right)))
+            elif edge == 'left' and abs(other.right - r.x) < 0.1:
+                covered.append((max(r.y, other.y), min(r.bottom, other.bottom)))
+            elif edge == 'right' and abs(other.x - r.right) < 0.1:
+                covered.append((max(r.y, other.y), min(r.bottom, other.bottom)))
+                
+        intervals = []
+        cur = main_bounds[0]
+        for c in sorted(covered):
+            if c[0] > cur:
+                intervals.append((cur, c[0]))
+            cur = max(cur, c[1])
+        if cur < main_bounds[1]:
+            intervals.append((cur, main_bounds[1]))
+        return [i for i in intervals if i[1] - i[0] > 0.1]
+
+    all_rects = list(room_rects.values())
+    
     for n in nodes:
         nid = n['id']
         r = room_rects[nid]
         rtype = n['type']
-        if rtype not in ["corridors"]:
-            if rtype in ["bathrooms", "outside_bathrooms"]:
-                win_len = 0.6
-                style = "sliding"
-            else:
-                win_len = 1.6
-                style = "sliding"
+        
+        if rtype in ["corridors", "storage"]:
+            continue
+            
+        is_bathroom = rtype in ["bathrooms", "outside_bathrooms"]
+        
+        for edge in ['top', 'bottom', 'left', 'right']:
+            intervals = get_exposed_intervals(r, edge, all_rects)
+            for (start, end) in intervals:
+                wall_len = end - start
                 
-            if r.width >= win_len or r.height >= win_len:
-                if abs(r.y - min_y) < 0.1:
-                    openings[nid].append(Opening(OpeningType.WINDOW, r.cx - win_len/2, r.y, win_len, Orientation.HORIZONTAL, style=style))
-                elif abs(r.bottom - max_y) < 0.1:
-                    openings[nid].append(Opening(OpeningType.WINDOW, r.cx - win_len/2, r.bottom, win_len, Orientation.HORIZONTAL, style=style))
-                elif abs(r.x - min_x) < 0.1:
-                    openings[nid].append(Opening(OpeningType.WINDOW, r.x, r.cy - win_len/2, win_len, Orientation.VERTICAL, style=style))
-                elif abs(r.right - max_x) < 0.1:
-                    openings[nid].append(Opening(OpeningType.WINDOW, r.right, r.cy - win_len/2, win_len, Orientation.VERTICAL, style=style))
-                
+                if is_bathroom:
+                    win_len = 0.6
+                else:
+                    win_len = min(2.0, max(1.0, wall_len * 0.4))
+                    
+                if wall_len >= win_len + 0.4:
+                    center = start + wall_len / 2
+                    if center - win_len/2 < start + 0.2:
+                        center = start + 0.2 + win_len/2
+                    if center + win_len/2 > end - 0.2:
+                        center = end - 0.2 - win_len/2
+                        
+                    if edge == 'top':
+                        openings[nid].append(Opening(OpeningType.WINDOW, center - win_len/2, r.y, win_len, Orientation.HORIZONTAL, style="sliding"))
+                    elif edge == 'bottom':
+                        openings[nid].append(Opening(OpeningType.WINDOW, center - win_len/2, r.bottom, win_len, Orientation.HORIZONTAL, style="sliding"))
+                    elif edge == 'left':
+                        openings[nid].append(Opening(OpeningType.WINDOW, r.x, center - win_len/2, win_len, Orientation.VERTICAL, style="sliding"))
+                    elif edge == 'right':
+                        openings[nid].append(Opening(OpeningType.WINDOW, r.right, center - win_len/2, win_len, Orientation.VERTICAL, style="sliding"))
+                    break
+
     # Front door
     for n in nodes:
         if n['type'] == 'living_rooms':

@@ -195,20 +195,40 @@ def render_dxf_bytes(plan: FloorPlan) -> tuple[ezdxf.document.Drawing, bytes]:
                         msp.add_arc((cx, cy), radius=leaf_len, start_angle=sa, end_angle=ea, dxfattribs={"layer": layer, "lineweight": 0})
             elif op.type == OpeningType.WINDOW:
                 # Window
+                frame_w = 0.04
                 if getattr(op, "style", "sliding") == "sliding":
                     if is_horiz:
                         msp.add_line((x1, y1 - wt/2), (x1, y1 + wt/2), dxfattribs={"layer": layer})
                         msp.add_line((x2, y2 - wt/2), (x2, y2 + wt/2), dxfattribs={"layer": layer})
+                        
+                        # Sill lines (window depth edge)
+                        msp.add_line((x1, y1 - wt/2), (x2, y2 - wt/2), dxfattribs={"layer": "OPENINGS", "lineweight": 0, "color": 8})
+                        msp.add_line((x1, y1 + wt/2), (x2, y2 + wt/2), dxfattribs={"layer": "OPENINGS", "lineweight": 0, "color": 8})
+                        
+                        # Frame borders
+                        msp.add_line((x1+frame_w, y1 - wt/2 + frame_w), (x1+frame_w, y1 + wt/2 - frame_w), dxfattribs={"layer": layer})
+                        msp.add_line((x2-frame_w, y1 - wt/2 + frame_w), (x2-frame_w, y1 + wt/2 - frame_w), dxfattribs={"layer": layer})
+                        
                         # two overlapping sliding panes
                         mid_x = (x1 + x2) / 2
-                        msp.add_line((x1, y1 - 0.02), (mid_x + 0.05, y1 - 0.02), dxfattribs={"layer": layer, "lineweight": 15})
-                        msp.add_line((mid_x - 0.05, y1 + 0.02), (x2, y1 + 0.02), dxfattribs={"layer": layer, "lineweight": 15})
+                        msp.add_line((x1+frame_w, y1 - 0.02), (mid_x + 0.02, y1 - 0.02), dxfattribs={"layer": layer, "lineweight": 15})
+                        msp.add_line((mid_x - 0.02, y1 + 0.02), (x2-frame_w, y1 + 0.02), dxfattribs={"layer": layer, "lineweight": 15})
                     else:
                         msp.add_line((x1 - wt/2, y1), (x1 + wt/2, y1), dxfattribs={"layer": layer})
                         msp.add_line((x2 - wt/2, y2), (x2 + wt/2, y2), dxfattribs={"layer": layer})
+                        
+                        # Sill lines
+                        msp.add_line((x1 - wt/2, y1), (x1 - wt/2, y2), dxfattribs={"layer": "OPENINGS", "lineweight": 0, "color": 8})
+                        msp.add_line((x1 + wt/2, y1), (x1 + wt/2, y2), dxfattribs={"layer": "OPENINGS", "lineweight": 0, "color": 8})
+                        
+                        # Frame borders
+                        msp.add_line((x1 - wt/2 + frame_w, y1+frame_w), (x1 + wt/2 - frame_w, y1+frame_w), dxfattribs={"layer": layer})
+                        msp.add_line((x1 - wt/2 + frame_w, y2-frame_w), (x1 + wt/2 - frame_w, y2-frame_w), dxfattribs={"layer": layer})
+                        
+                        # two overlapping sliding panes
                         mid_y = (y1 + y2) / 2
-                        msp.add_line((x1 - 0.02, y1), (x1 - 0.02, mid_y + 0.05), dxfattribs={"layer": layer, "lineweight": 15})
-                        msp.add_line((x1 + 0.02, mid_y - 0.05), (x1 + 0.02, y2), dxfattribs={"layer": layer, "lineweight": 15})
+                        msp.add_line((x1 - 0.02, y1+frame_w), (x1 - 0.02, mid_y + 0.02), dxfattribs={"layer": layer, "lineweight": 15})
+                        msp.add_line((x1 + 0.02, mid_y - 0.02), (x1 + 0.02, y2-frame_w), dxfattribs={"layer": layer, "lineweight": 15})
                 else:
                     # awning or standard
                     if is_horiz:
