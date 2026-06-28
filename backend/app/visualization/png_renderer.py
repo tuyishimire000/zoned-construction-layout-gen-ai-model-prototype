@@ -101,6 +101,14 @@ class _Transform:
 
 
 def _draw_site_feature(draw, t, f: SiteFeature):
+    if f.points:
+        scaled_pts = [(t.x(px), t.y(py)) for px, py in f.points]
+        if f.type == FeatureType.PATH:
+            draw.line(scaled_pts, fill="#E0E0E0", width=int(t.scale * 1.5), joint="curve")
+        elif f.type == FeatureType.DRIVEWAY:
+            draw.line(scaled_pts, fill="#BDBDBD", width=int(t.scale * 3.0), joint="curve")
+        return
+
     if f.type == FeatureType.GRASS:
         draw.rectangle(t.box(f.bounds), fill=GRASS_FILL, outline=GRASS_LINE, width=4)
     elif f.type == FeatureType.TREE:
@@ -133,51 +141,68 @@ def _draw_furniture(draw, t, item: Furniture):
     x0, y0, x1, y1 = t.box(item.bounds)
     w, h = x1 - x0, y1 - y0
     if item.type == "bed":
-        draw.rectangle([x0, y0, x1, y1], fill="#FFFFFF", outline="#9E9E9E", width=2)
-        draw.rectangle([x0 + w * 0.1, y0 + h * 0.06, x1 - w * 0.1, y0 + h * 0.22], fill="#E0E0E0")
+        draw.rectangle([x0, y0, x1, y1], fill="#E0F7FA", outline="#4DD0E1", width=2)
+        draw.rectangle([x0 + w * 0.1, y0 + h * 0.1, x1 - w * 0.1, y0 + h * 0.35], fill="#FFFFFF", outline="#4DD0E1", width=1)
+    elif item.type == "wardrobe":
+        draw.rectangle([x0, y0, x1, y1], fill="#A1887F", outline="#7B5E54", width=2)
     elif item.type == "bathtub":
-        draw.rectangle([x0, y0, x1, y1], fill="#FFFFFF", outline="#9E9E9E", width=2)
-        draw.ellipse([x0 + w * 0.15, y0 + h * 0.08, x1 - w * 0.15, y1 - h * 0.08], outline="#90A4AE", width=2)
+        draw.rectangle([x0, y0, x1, y1], fill="#E3F2FD", outline="#90CAF9", width=2)
+    elif item.type == "toilet":
+        draw.rectangle([x0 + w*0.2, y0, x1 - w*0.2, y0 + h*0.3], fill="#FFFFFF", outline="#B0BEC5", width=2)
+        draw.ellipse([x0 + w*0.15, y0 + h*0.3, x1 - w*0.15, y1], fill="#FFFFFF", outline="#B0BEC5", width=2)
+    elif item.type == "sink":
+        draw.rectangle([x0, y0, x1, y1], fill="#F5F5F5", outline="#E0E0E0", width=2)
+        draw.ellipse([x0 + w*0.15, y0 + h*0.15, x1 - w*0.15, y1 - h*0.15], fill="#FFFFFF", outline="#B0BEC5", width=1)
     elif item.type == "kitchen_counter":
         draw.rectangle([x0, y0, x1, y1], fill="#BDBDBD", outline="#757575", width=2)
-        r = h * 0.18
-        draw.ellipse([x0 + w * 0.08, y0 + h * 0.3, x0 + w * 0.08 + r, y0 + h * 0.3 + r], fill="#424242")
-        draw.ellipse([x0 + w * 0.22, y0 + h * 0.3, x0 + w * 0.22 + r, y0 + h * 0.3 + r], fill="#424242")
+    elif item.type == "kitchen_island":
+        draw.rectangle([x0, y0, x1, y1], fill="#EEEEEE", outline="#BDBDBD", width=2)
     elif item.type == "sofa":
-        draw.rectangle([x0, y0 + h * 0.35, x1, y1], fill="#90CAF9", outline="#5C9CD6")
-        draw.rectangle([x0, y0, x1, y0 + h * 0.45], fill="#90CAF9", outline="#5C9CD6")
+        draw.rectangle([x0, y0 + h * 0.3, x1, y1], fill="#90CAF9", outline="#5C9CD6")
+        draw.rectangle([x0 + w * 0.1, y0, x1 - w * 0.1, y0 + h * 0.5], fill="#90CAF9", outline="#5C9CD6")
+    elif item.type == "tv_stand":
+        draw.rectangle([x0, y0, x1, y1], fill="#424242", outline="#212121", width=2)
     elif item.type == "desk":
         draw.rectangle([x0, y0, x1, y0 + h * 0.55], fill="#A1887F", outline="#7B5E54")
         r = min(w, h) * 0.3
-        draw.ellipse([x0 + w * 0.35, y1 - r, x0 + w * 0.35 + r, y1], fill="#607D8B")
-
-
-# --- Walls ---------------------------------------------------------------- #
+        draw.ellipse([x0 + w * 0.35, y1 - r*2, x0 + w * 0.35 + r*2, y1], fill="#607D8B")
 
 
 def _draw_interior_walls(draw, t, plan: FloorPlan):
     """Single thick lines on room boundaries (the partitions between spaces)."""
     width = max(2, int(plan.wall_thickness * t.scale * 0.7))
-    for room in plan.rooms:
+    for room in plan.rooms + plan.annex_rooms:
         draw.rectangle(t.box(room.bounds), outline=WALL_THIN, width=width)
 
-
 def _draw_exterior_walls(draw, t, plan: FloorPlan):
-    """Classic double-line: outer footprint outline + an inner offset outline."""
+    """Draw thick lines only on exposed edges to support non-rectangular shapes."""
     wt = plan.wall_thickness
-    b = plan.building
-    inner = Rect(b.x + wt, b.y + wt, b.width - 2 * wt, b.height - 2 * wt)
-    draw.rectangle(t.box(b), outline=WALL_DARK, width=3)
-    draw.rectangle(t.box(inner), outline=WALL_DARK, width=2)
     
-    if plan.annex_building:
-        ab = plan.annex_building
-        ainner = Rect(ab.x + wt, ab.y + wt, ab.width - 2 * wt, ab.height - 2 * wt)
-        draw.rectangle(t.box(ab), outline=WALL_DARK, width=3)
-        draw.rectangle(t.box(ainner), outline=WALL_DARK, width=2)
+    def is_exposed(cx, cy, all_rooms):
+        # A point slightly outside the wall center
+        for r in all_rooms:
+            if r.bounds.x < cx < r.bounds.right and r.bounds.y < cy < r.bounds.bottom:
+                return False
+        return True
 
+    all_rooms = plan.rooms + plan.annex_rooms
+    
+    for room in all_rooms:
+        b = room.bounds
+        # Top edge
+        if is_exposed(b.cx, b.y - 0.1, all_rooms):
+            draw.line([t.x(b.x), t.y(b.y), t.x(b.right), t.y(b.y)], fill=WALL_DARK, width=4)
+        # Bottom edge
+        if is_exposed(b.cx, b.bottom + 0.1, all_rooms):
+            draw.line([t.x(b.x), t.y(b.bottom), t.x(b.right), t.y(b.bottom)], fill=WALL_DARK, width=4)
+        # Left edge
+        if is_exposed(b.x - 0.1, b.cy, all_rooms):
+            draw.line([t.x(b.x), t.y(b.y), t.x(b.x), t.y(b.bottom)], fill=WALL_DARK, width=4)
+        # Right edge
+        if is_exposed(b.right + 0.1, b.cy, all_rooms):
+            draw.line([t.x(b.right), t.y(b.y), t.x(b.right), t.y(b.bottom)], fill=WALL_DARK, width=4)
 
-# --- Openings: windows and doors ------------------------------------------ #
+    # We removed the global BUILDING_FILL earlier, so we don't need to draw the inner outline anymore.
 
 
 def _opening_endpoints(o: Opening):
@@ -365,9 +390,7 @@ def render_png_bytes(plan: FloorPlan) -> bytes:
             _draw_site_feature(draw, t, f)
 
     # Building shell and rooms.
-    draw.rectangle(t.box(plan.building), fill=BUILDING_FILL)
-    if plan.annex_building:
-        draw.rectangle(t.box(plan.annex_building), fill=BUILDING_FILL)
+    # We no longer fill a single global building rect. The rooms themselves define the footprint.
         
     for f in plan.site_features:
         if f.type == FeatureType.CORRIDOR:

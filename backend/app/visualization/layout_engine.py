@@ -1,442 +1,397 @@
-"""Layout engine: turns extracted params + compliance into a FloorPlan model."""
+"""Layout engine: graph-based grid adjacency solver."""
 
 import math
-from typing import List, Tuple
+import random
+from typing import List, Tuple, Dict, Any, Set
 
 from .model import (
-    FloorPlan,
-    Rect,
-    Room,
-    Opening,
-    OpeningType,
-    Orientation,
-    Furniture,
-    SiteFeature,
-    FeatureType,
+    FloorPlan, Rect, Room, Opening, OpeningType,
+    Orientation, Furniture, SiteFeature, FeatureType,
 )
 
 STANDARD_ROOM_SIZES = {
-    "bedrooms": 15,
-    "bathrooms": 5,
-    "kitchens": 10,
-    "living_rooms": 20,
-    "offices": 12,
-    "outside_kitchens": 8,
-    "outside_bathrooms": 4,
-    "maid_rooms": 9,
+    "bedrooms": 15, "bathrooms": 5, "kitchens": 10,
+    "living_rooms": 20, "offices": 12, "outside_kitchens": 8,
+    "outside_bathrooms": 4, "maid_rooms": 9, "corridors": 10
 }
 
-# New physical constraints
 MIN_WIDTHS = {
-    "bedrooms": 2.5,
-    "living_rooms": 3.0,
-    "bathrooms": 1.5,
-    "kitchens": 2.5,
-    "offices": 2.5,
-    "outside_kitchens": 2.0,
-    "outside_bathrooms": 1.5,
-    "maid_rooms": 2.5,
+    "bedrooms": 3.0, "living_rooms": 4.0, "bathrooms": 1.5,
+    "kitchens": 3.0, "offices": 2.5, "outside_kitchens": 2.0,
+    "outside_bathrooms": 1.5, "maid_rooms": 2.5, "corridors": 1.5
 }
 
 MIN_DEPTHS = {
-    "bedrooms": 3.0,
-    "living_rooms": 4.0,
-    "bathrooms": 2.0,
-    "kitchens": 3.0,
-    "offices": 3.0,
-    "outside_kitchens": 2.5,
-    "outside_bathrooms": 2.0,
-    "maid_rooms": 3.0,
+    "bedrooms": 3.0, "living_rooms": 4.0, "bathrooms": 2.0,
+    "kitchens": 3.0, "offices": 3.0, "outside_kitchens": 2.5,
+    "outside_bathrooms": 2.0, "maid_rooms": 3.0, "corridors": 2.0
 }
 
 FURNITURE_SIZES = {
-    "bed": (1.5, 2.0),
+    "bed": (1.8, 2.0),
+    "wardrobe": (2.0, 0.6),
     "bathtub": (0.8, 1.6),
-    "sofa": (2.0, 0.8),
+    "toilet": (0.5, 0.7),
+    "sink": (0.6, 0.5),
+    "sofa": (2.2, 0.9),
+    "tv_stand": (1.5, 0.4),
     "desk": (1.2, 0.6),
+    "kitchen_island": (1.8, 0.9),
 }
-
-ROOM_PADDING = 0.4
-CORRIDOR_HEIGHT = 1.2
-
 
 def _singular_label(rtype: str) -> str:
     base = rtype[:-1] if rtype.endswith("s") else rtype
     return base.replace("_", " ").capitalize()
 
+def _build_furniture(rtype: str, room: Rect) -> List[Furniture]:
+    f = []
+    
+    def add(type_name, x, y):
+        w, h = FURNITURE_SIZES[type_name]
+        f.append(Furniture(type_name, Rect(x, y, w, h)))
 
-def _split_into_wings(
-    room_items: List[Tuple[str, float]]
-) -> Tuple[List[Tuple[str, float]], List[Tuple[str, float]]]:
-    top, bottom = [], []
-    
-    # Group by type
-    from collections import defaultdict
-    groups = defaultdict(list)
-    for r in room_items:
-        groups[r[0]].append(r)
+    if rtype in ("bedrooms", "maid_rooms"):
+        add("bed", room.x + 0.5, room.y + 0.2)
+        add("wardrobe", room.right - FURNITURE_SIZES["wardrobe"][0] - 0.2, room.bottom - FURNITURE_SIZES["wardrobe"][1] - 0.2)
+    elif rtype in ("bathrooms", "outside_bathrooms"):
+        add("bathtub", room.x + 0.1, room.y + 0.1)
+        add("toilet", room.right - FURNITURE_SIZES["toilet"][0] - 0.1, room.y + 0.1)
+        add("sink", room.right - FURNITURE_SIZES["sink"][0] - 0.1, room.bottom - FURNITURE_SIZES["sink"][1] - 0.1)
+    elif rtype in ("kitchens", "outside_kitchens"):
+        cw, ch = max(room.width - 0.4, 0.4), 0.6
+        f.append(Furniture("kitchen_counter", Rect(room.cx - cw/2, room.y + 0.1, cw, ch)))
+        if room.width >= 3.5 and room.height >= 3.5:
+            add("kitchen_island", room.cx - FURNITURE_SIZES["kitchen_island"][0]/2, room.cy - FURNITURE_SIZES["kitchen_island"][1]/2)
+    elif rtype == "living_rooms":
+        add("sofa", room.cx - FURNITURE_SIZES["sofa"][0]/2, room.y + 0.5)
+        add("tv_stand", room.cx - FURNITURE_SIZES["tv_stand"][0]/2, room.bottom - FURNITURE_SIZES["tv_stand"][1] - 0.2)
+    elif rtype == "offices":
+        add("desk", room.x + 0.5, room.y + 0.5)
         
-    top_weight = bottom_weight = 0.0
+    return f
+
+
+def _score_layout(rects: Dict[str, Rect], edges: List[Dict]) -> float:
+    # Lower is better. Calculate total area, perimeter, and walking distance.
+    if not rects: return 0.0
+    min_x = min(r.x for r in rects.values())
+    max_x = max(r.right for r in rects.values())
+    min_y = min(r.y for r in rects.values())
+    max_y = max(r.bottom for r in rects.values())
     
-    # Distribute each type evenly
-    for rtype, items in groups.items():
-        for i, item in enumerate(items):
-            # Force Living Room to the bottom wing (front of the house)
-            if rtype == "living_rooms":
-                bottom.append(item)
-                bottom_weight += item[1]
+    width = max_x - min_x
+    height = max_y - min_y
+    compactness = width * height # Bounding box area penalty
+    
+    # Connection distance penalty
+    dist = 0
+    for e in edges:
+        if e['room_a'] in rects and e['room_b'] in rects:
+            ra, rb = rects[e['room_a']], rects[e['room_b']]
+            weight = e.get('weight', 1)
+            dist += weight * (abs(ra.cx - rb.cx) + abs(ra.cy - rb.cy))
+            
+    return compactness * 0.1 + dist
+
+def _solve_grid(nodes: List[Dict], edges: List[Dict], iterations: int = 20) -> Tuple[Dict[str, Rect], float]:
+    if not nodes: return {}, 0.0
+    adj = {n['id']: [] for n in nodes}
+    for e in edges:
+        if e['room_a'] in adj and e['room_b'] in adj:
+            adj[e['room_a']].append(e['room_b'])
+            adj[e['room_b']].append(e['room_a'])
+            
+    best_rects = {}
+    best_score = float('inf')
+    node_map = {n['id']: n for n in nodes}
+    
+    for _ in range(iterations):
+        # Add slight randomness to sort order
+        sorted_nodes = sorted(nodes, key=lambda n: len(adj[n['id']]) + random.random(), reverse=True)
+        grid = {}
+        placed = {}
+        
+        def get_adj_cells(x, y):
+            return [(x+1,y), (x-1,y), (x,y+1), (x,y-1)]
+            
+        for node in sorted_nodes:
+            nid = node['id']
+            if not placed:
+                grid[(0,0)] = nid
+                placed[nid] = (0,0)
                 continue
                 
-            # Try to balance weight overall, but also distribute the type
-            # Alternate based on index to ensure even spread of instances
-            if i % 2 == 0:
-                if top_weight <= bottom_weight:
-                    top.append(item)
-                    top_weight += item[1]
+            connected_placed = [p for p in adj[nid] if p in placed]
+            candidates = set()
+            if connected_placed:
+                for cp in connected_placed:
+                    if placed[cp] is None: continue
+                    cx, cy = placed[cp]
+                    for ac in get_adj_cells(cx, cy):
+                        if ac not in grid: candidates.add(ac)
+            
+            if not candidates:
+                for p in placed.values():
+                    if p is None: continue
+                    for ac in get_adj_cells(p[0], p[1]):
+                        if ac not in grid: candidates.add(ac)
+                        
+            best_cell = None
+            cell_scores = []
+            for cx, cy in candidates:
+                score = 0
+                if connected_placed:
+                    for cp in connected_placed:
+                        px, py = placed[cp]
+                        score += abs(cx - px) + abs(cy - py)
                 else:
-                    bottom.append(item)
-                    bottom_weight += item[1]
-            else:
-                if top_weight > bottom_weight:
-                    top.append(item)
-                    top_weight += item[1]
-                else:
-                    bottom.append(item)
-                    bottom_weight += item[1]
-
-    return top, bottom
-
-
-def _build_furniture(rtype: str, room: Rect, is_top_wing: bool) -> List[Furniture]:
-    if rtype in ("bedrooms", "maid_rooms"):
-        w, h = FURNITURE_SIZES["bed"]
-        # Center bed horizontally, placed against the top wall
-        return [Furniture("bed", Rect(room.cx - w / 2, room.y + ROOM_PADDING, w, h))]
-    if rtype in ("bathrooms", "outside_bathrooms"):
-        w, h = FURNITURE_SIZES["bathtub"]
-        # Place bathtub against the right wall, centered vertically
-        bx = room.right - w - 0.1
-        by = room.cy - h / 2
-        return [Furniture("bathtub", Rect(bx, by, w, h))]
-    if rtype in ("kitchens", "outside_kitchens"):
-        # Kitchen counter spans the exterior wall (under the window)
-        cw = max(room.width - 0.4, 0.4)
-        ch = 0.6
-        cx = room.cx - cw / 2
-        cy = room.y + 0.2 if is_top_wing else room.bottom - ch - 0.2
-        return [Furniture("kitchen_counter", Rect(cx, cy, cw, ch))]
-    if rtype == "living_rooms":
-        w, h = FURNITURE_SIZES["sofa"]
-        # Center the sofa perfectly in the room
-        return [Furniture("sofa", Rect(room.cx - w / 2, room.cy - h / 2, min(w, room.width - 0.4), h))]
-    if rtype == "offices":
-        w, h = FURNITURE_SIZES["desk"]
-        # Center the desk horizontally, near the exterior wall
-        dy = room.y + 1.0 if is_top_wing else room.bottom - h - 1.0
-        return [Furniture("desk", Rect(room.cx - w / 2, dy, w, h))]
-    return []
-
-
-def _build_openings(room: Rect, rtype: str, is_top_wing: bool) -> List[Opening]:
-    openings: List[Opening] = []
-
-    exterior_y = room.y if is_top_wing else room.bottom
-    corridor_y = room.bottom if is_top_wing else room.y
-
-    # Internal door to the corridor
-    door_len = min(1.0, max(0.5, room.width - 0.4))
-    door_x = room.cx - door_len / 2
-    openings.append(
-        Opening(OpeningType.DOOR, door_x, corridor_y, door_len, Orientation.HORIZONTAL)
-    )
-
-    if rtype == "living_rooms":
-        # Living Room has a front entrance double door (2x1m) AND a window on its exterior wall
-        # Divide the width: Door in left half, Window in right half
-        door_total = min(2.0, room.width * 0.45)
-        single_door = door_total / 2.0
+                    score = abs(cx) + abs(cy)
+                score += 0.01 * (abs(cx) + abs(cy))
+                cell_scores.append((score, (cx, cy)))
+                
+            # Randomly pick among the top tied scores to explore different topologies
+            if cell_scores:
+                min_s = min(s for s, c in cell_scores)
+                top_cells = [c for s, c in cell_scores if s <= min_s + 0.02]
+                best_cell = random.choice(top_cells)
+                    
+            if best_cell:
+                grid[best_cell] = nid
+                placed[nid] = best_cell
+            
+        if not placed: continue
+            
+        min_x = min(x for x,y in placed.values() if x is not None)
+        max_x = max(x for x,y in placed.values() if x is not None)
+        min_y = min(y for x,y in placed.values() if y is not None)
+        max_y = max(y for x,y in placed.values() if y is not None)
         
-        # Center the double door in the left half of the room (so it's not glued to the corner)
-        left_center = room.x + room.width * 0.25
-        front_door1_x = left_center - single_door
-        front_door2_x = left_center
+        col_widths = {}
+        row_heights = {}
         
-        # Center the window in the right half of the room
-        win_len = min(2.0, room.width * 0.45)
-        right_center = room.x + room.width * 0.75
-        win_x = right_center - win_len / 2.0
-        
-        # Left door of the double door (hinges on its left, start)
-        openings.append(
-            Opening(OpeningType.DOOR, front_door1_x, exterior_y, single_door, Orientation.HORIZONTAL, hinge_at_start=True)
-        )
-        # Right door of the double door (hinges on its right, end)
-        openings.append(
-            Opening(OpeningType.DOOR, front_door2_x, exterior_y, single_door, Orientation.HORIZONTAL, hinge_at_start=False)
-        )
-        # Window
-        openings.append(
-            Opening(OpeningType.WINDOW, win_x, exterior_y, win_len, Orientation.HORIZONTAL)
-        )
-    else:
-        # Other rooms just have a window on exterior
-        win_len = 1.5
-        win_len = min(win_len, max(0.5, room.width - 0.4))
-        win_x = room.cx - win_len / 2
-        openings.append(
-            Opening(OpeningType.WINDOW, win_x, exterior_y, win_len, Orientation.HORIZONTAL)
-        )
+        for x in range(min_x, max_x + 1):
+            ws = [MIN_WIDTHS.get(node_map[grid[(x,y)]]['type'], 2.0) for y in range(min_y, max_y + 1) if (x,y) in grid]
+            col_widths[x] = max(ws) if ws else 0
+        for y in range(min_y, max_y + 1):
+            hs = [MIN_DEPTHS.get(node_map[grid[(x,y)]]['type'], 3.0) for x in range(min_x, max_x + 1) if (x,y) in grid]
+            row_heights[y] = max(hs) if hs else 0
+            
+        rects = {}
+        cur_y = 0
+        for y in range(min_y, max_y + 1):
+            cur_x = 0
+            for x in range(min_x, max_x + 1):
+                if (x,y) in grid:
+                    rects[grid[(x,y)]] = Rect(cur_x, cur_y, col_widths[x], row_heights[y])
+                cur_x += col_widths[x]
+            cur_y += row_heights[y]
+            
+        # Score this candidate
+        score = _score_layout(rects, edges)
+        if score < best_score:
+            best_score = score
+            best_rects = rects
+            
+    return best_rects, best_score
 
+def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[Dict]) -> Dict[str, List[Opening]]:
+    openings = {n['id']: [] for n in nodes}
+    for e in edges:
+        ra, rb = e['room_a'], e['room_b']
+        if ra not in room_rects or rb not in room_rects: continue
+        r1, r2 = room_rects[ra], room_rects[rb]
+        
+        door_len = 0.8
+        if abs(r1.right - r2.x) < 0.1 or abs(r2.right - r1.x) < 0.1:
+            # Vertical wall
+            is_r1_left = abs(r1.right - r2.x) < 0.1
+            x = r1.right if is_r1_left else r2.right
+            ys, ye = max(r1.y, r2.y), min(r1.bottom, r2.bottom)
+            if ye - ys >= door_len:
+                dy = ys + (ye - ys - door_len) / 2
+                swing = "right" if is_r1_left else "left"
+                openings[ra].append(Opening(OpeningType.DOOR, x, dy, door_len, Orientation.VERTICAL, swing=swing))
+                openings[rb].append(Opening(OpeningType.DOOR, x, dy, door_len, Orientation.VERTICAL, swing=swing))
+        elif abs(r1.bottom - r2.y) < 0.1 or abs(r2.bottom - r1.y) < 0.1:
+            # Horizontal wall
+            is_r1_top = abs(r1.bottom - r2.y) < 0.1
+            y = r1.bottom if is_r1_top else r2.bottom
+            xs, xe = max(r1.x, r2.x), min(r1.right, r2.right)
+            if xe - xs >= door_len:
+                dx = xs + (xe - xs - door_len) / 2
+                swing = "down" if is_r1_top else "up"
+                openings[ra].append(Opening(OpeningType.DOOR, dx, y, door_len, Orientation.HORIZONTAL, swing=swing))
+                openings[rb].append(Opening(OpeningType.DOOR, dx, y, door_len, Orientation.HORIZONTAL, swing=swing))
+
+    # Building bounding box to detect exterior walls
+    min_x = min(r.x for r in room_rects.values()) if room_rects else 0
+    max_x = max(r.right for r in room_rects.values()) if room_rects else 0
+    min_y = min(r.y for r in room_rects.values()) if room_rects else 0
+    max_y = max(r.bottom for r in room_rects.values()) if room_rects else 0
+
+    for n in nodes:
+        nid = n['id']
+        r = room_rects[nid]
+        if n['type'] not in ["corridors", "bathrooms"]: # Corridors and usually bathrooms don't get large feature windows
+            win_len = min(1.5, max(r.width, r.height) * 0.4)
+            if abs(r.y - min_y) < 0.1:
+                # Exterior top
+                openings[nid].append(Opening(OpeningType.WINDOW, r.cx - win_len/2, r.y, win_len, Orientation.HORIZONTAL))
+            elif abs(r.bottom - max_y) < 0.1:
+                # Exterior bottom
+                openings[nid].append(Opening(OpeningType.WINDOW, r.cx - win_len/2, r.bottom, win_len, Orientation.HORIZONTAL))
+            elif abs(r.x - min_x) < 0.1:
+                # Exterior left
+                openings[nid].append(Opening(OpeningType.WINDOW, r.x, r.cy - win_len/2, win_len, Orientation.VERTICAL))
+            elif abs(r.right - max_x) < 0.1:
+                # Exterior right
+                openings[nid].append(Opening(OpeningType.WINDOW, r.right, r.cy - win_len/2, win_len, Orientation.VERTICAL))
+                
+    # Front door
+    for n in nodes:
+        if n['type'] == 'living_rooms':
+            r = room_rects[n['id']]
+            # Front door always on bottom edge, swinging up into the house
+            openings[n['id']].append(Opening(OpeningType.DOOR, r.cx - 0.5, r.bottom, 1.0, Orientation.HORIZONTAL, swing="up"))
+            break
+            
     return openings
-
-
-def _sort_wing_rooms(rooms: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
-    public_order = ["living_rooms", "kitchens", "offices"]
-    public = []
-    beds = []
-    baths = []
-    others = []
-    
-    for r in rooms:
-        rtype = r[0]
-        if rtype in public_order:
-            public.append(r)
-        elif rtype == "bedrooms":
-            beds.append(r)
-        elif rtype == "bathrooms":
-            baths.append(r)
-        else:
-            others.append(r)
-            
-    public.sort(key=lambda x: public_order.index(x[0]))
-    
-    # Interleave beds and baths
-    # If there are more baths than beds, start with baths to keep them separated
-    interleaved = []
-    if len(baths) > len(beds):
-        while beds or baths:
-            if baths: interleaved.append(baths.pop(0))
-            if beds: interleaved.append(beds.pop(0))
-    else:
-        while beds or baths:
-            if beds: interleaved.append(beds.pop(0))
-            if baths: interleaved.append(baths.pop(0))
-            
-    return public + others + interleaved
-
-
-def _layout_wing(
-    wing: Rect, rooms: List[Tuple[str, float]], is_top_wing: bool
-) -> List[Room]:
-    if not rooms:
-        return []
-
-    rooms = _sort_wing_rooms(rooms)
-
-    # First, allocate minimum widths
-    min_widths = [MIN_WIDTHS.get(rtype, 2.0) for rtype, _ in rooms]
-    total_min = sum(min_widths)
-    
-    # Distribute the remaining width proportionally by weight
-    remaining = max(0.0, wing.width - total_min)
-    total_weight = sum(w for _, w in rooms) or 1.0
-
-    placed: List[Room] = []
-    cursor_x = wing.x
-
-    for i, (rtype, weight) in enumerate(rooms):
-        room_width = min_widths[i] + remaining * (weight / total_weight)
-        bounds = Rect(cursor_x, wing.y, room_width, wing.height)
-        placed.append(
-            Room(
-                type=rtype,
-                label=_singular_label(rtype),
-                bounds=bounds,
-                openings=_build_openings(bounds, rtype, is_top_wing),
-                furniture=_build_furniture(rtype, bounds, is_top_wing),
-            )
-        )
-        cursor_x += room_width
-
-    return placed
-
-
-def _build_landscaping(plot: Rect) -> List[SiteFeature]:
-    features = [SiteFeature(FeatureType.GRASS, Rect(0, 0, plot.width, plot.height))]
-    tree_d = max(plot.width * 0.05, 1.0)
-    inset = tree_d
-    corners = [
-        (inset, inset),
-        (plot.width - inset - tree_d, inset),
-        (plot.width - inset - tree_d, plot.height - inset - tree_d),
-    ]
-    for tx, ty in corners:
-        features.append(SiteFeature(FeatureType.TREE, Rect(tx, ty, tree_d, tree_d)))
-    return features
-
-
-def _build_parking(plot: Rect, count: int) -> List[SiteFeature]:
-    if count <= 0:
-        return []
-
-    # User says 3m is enough in Kigali
-    stall_w, stall_h = 2.5, 3.0
-    gap = 0.5
-    shown = min(count, 5)
-
-    features: List[SiteFeature] = []
-    # Place parking in the front setback (bottom of plot)
-    start_x = 2.0
-    start_y = plot.height - stall_h
-
-    for i in range(shown):
-        px = start_x + i * (stall_w + gap)
-        features.append(
-            SiteFeature(FeatureType.PARKING, Rect(px, start_y, stall_w, stall_h), "P")
-        )
-
-    return features
-
 
 def build_floorplan(params: dict, compliance: dict) -> FloorPlan:
     plot_size = params.get("plot_size") or 600
     floors = params.get("floors") or 1
     parking = params.get("parking_spaces") or 0
     usage = params.get("usage") or "residential"
-    rooms = params.get("rooms", {}) or {}
-
+    
     plot_side = math.sqrt(plot_size)
     plot = Rect(0, 0, plot_side, plot_side)
-
-    # Physical setbacks
-    # Left = 2.0, Right = 2.0, Back (top) = 2.0, Front (bottom) = 3.0
-    left_setback, right_setback = 2.0, 2.0
-    back_setback, front_setback = 2.0, 3.0
-
-    building_w = plot_side - left_setback - right_setback
-    building_h = plot_side - back_setback - front_setback
-
-    if building_w < 3.0 or building_h < 3.0:
-        raise ValueError(f"Plot size ({plot_size} sqm) is too small to accommodate the required {left_setback}m side, {back_setback}m back, and {front_setback}m front setbacks.")
-
-    building = Rect(left_setback, back_setback, building_w, building_h)
-
-    room_items: List[Tuple[str, float]] = []
-    annex_items: List[Tuple[str, float]] = []
+    
+    graph = params.get("graph")
+    nodes = []
+    edges = []
+    if graph and graph.get("rooms"):
+        for r in graph["rooms"]:
+            nodes.append({"id": r["id"], "type": r["room_type"]})
+        for e in graph.get("connections", []):
+            edges.append(e)
+    else:
+        rooms_counts = params.get("rooms", {}) or {}
+        prev_id = None
+        for rtype, count in rooms_counts.items():
+            for i in range(int(count)):
+                nid = f"{rtype}_{i}"
+                nodes.append({"id": nid, "type": rtype})
+                if prev_id: edges.append({"room_a": prev_id, "room_b": nid})
+                prev_id = nid
+                
     annex_types = {"outside_kitchens", "outside_bathrooms", "maid_rooms"}
+    main_nodes = [n for n in nodes if n["type"] not in annex_types]
+    annex_nodes = [n for n in nodes if n["type"] in annex_types]
     
-    for rtype, count in rooms.items():
-        for _ in range(int(count)):
-            if rtype in annex_types:
-                annex_items.append((rtype, STANDARD_ROOM_SIZES.get(rtype, 10)))
-            else:
-                room_items.append((rtype, STANDARD_ROOM_SIZES.get(rtype, 10)))
-
-    top_rooms, bottom_rooms = _split_into_wings(room_items)
-
-    # Validate room constraints
-    def req_width(r_items):
-        return sum(MIN_WIDTHS.get(rt, 2.0) for rt, _ in r_items)
-    def req_depth(r_items):
-        return max([MIN_DEPTHS.get(rt, 3.0) for rt, _ in r_items] + [0])
-
-    top_w_req = req_width(top_rooms)
-    bottom_w_req = req_width(bottom_rooms)
-    top_d_req = req_depth(top_rooms) if top_rooms else 0
-    bottom_d_req = req_depth(bottom_rooms) if bottom_rooms else 0
+    main_edges = [e for e in edges if any(n['id'] == e['room_a'] for n in main_nodes) and any(n['id'] == e['room_b'] for n in main_nodes)]
+    annex_edges = [e for e in edges if any(n['id'] == e['room_a'] for n in annex_nodes) and any(n['id'] == e['room_b'] for n in annex_nodes)]
     
-    annex_w_req = req_width(annex_items)
-    annex_d_req = req_depth(annex_items) if annex_items else 0
-
-    corridor_h = CORRIDOR_HEIGHT if room_items else 0
-    total_w_req = max(top_w_req, bottom_w_req, annex_w_req)
+    main_rects, main_score = _solve_grid(main_nodes, main_edges)
+    annex_rects, annex_score = _solve_grid(annex_nodes, annex_edges)
     
-    # If there are annexes, we need: annex depth + 2m gap + main house depth
-    annex_reserved_h = (annex_d_req + 2.0) if annex_items else 0.0
-    total_h_req = top_d_req + corridor_h + bottom_d_req + annex_reserved_h
-
-    if building_w < total_w_req or building_h < total_h_req:
-        raise ValueError(f"The required rooms need a building depth of {total_h_req:.1f}m. After setbacks, plot only allows {building_h:.1f}m. Please reduce rooms or increase plot size.")
-
-    placed_rooms: List[Room] = []
-    corridor: SiteFeature | None = None
+    left_setback, back_setback, front_setback = 2.0, 2.0, 3.0
     
-    annex_building: Rect | None = None
-    placed_annex_rooms: List[Room] = []
+    main_w = max([r.right for r in main_rects.values()] + [0])
+    main_h = max([r.bottom for r in main_rects.values()] + [0])
+    annex_h = max([r.bottom for r in annex_rects.values()] + [0]) if annex_rects else 0.0
+    
+    shift_x = left_setback
+    shift_y = back_setback + annex_h + (2.0 if annex_h > 0 else 0)
+    
+    placed_rooms = []
+    
+    if main_rects:
+        openings_map = _build_openings(main_rects, main_nodes, main_edges)
+        for nid, r in main_rects.items():
+            ntype = next(n['type'] for n in main_nodes if n['id'] == nid)
+            r.x += shift_x; r.y += shift_y
+            for o in openings_map[nid]:
+                o.x += shift_x; o.y += shift_y
+            placed_rooms.append(Room(
+                type=ntype,
+                label=_singular_label(ntype) if ntype != "corridors" else "Corridor",
+                bounds=r,
+                openings=openings_map[nid],
+                furniture=_build_furniture(ntype, r)
+            ))
+            
+    placed_annex = []
+    if annex_rects:
+        annex_openings = _build_openings(annex_rects, annex_nodes, annex_edges)
+        for nid, r in annex_rects.items():
+            ntype = next(n['type'] for n in annex_nodes if n['id'] == nid)
+            r.x += shift_x; r.y += back_setback
+            for o in annex_openings[nid]:
+                o.x += shift_x; o.y += back_setback
+            placed_annex.append(Room(
+                type=ntype,
+                label=_singular_label(ntype),
+                bounds=r,
+                openings=annex_openings[nid],
+                furniture=_build_furniture(ntype, r)
+            ))
+            
+    building = Rect(shift_x, shift_y, main_w, main_h)
+    annex_building = Rect(shift_x, back_setback, max([r.right for r in annex_rects.values()] + [0]), annex_h) if placed_annex else None
 
-    if annex_items:
-        # Place annex at the very back (starting at building.y)
-        annex_h = annex_d_req
-        annex_building = Rect(building.x, building.y, building.width, annex_h)
-        placed_annex_rooms = _layout_wing(annex_building, annex_items, is_top_wing=True)
-        
-        # Shrink the main building down to leave a 2m gap
-        building = Rect(building.x, annex_building.bottom + 2.0, building.width, building.height - annex_h - 2.0)
-
-    if room_items:
-        # Distribute remaining height in the main building
-        rem_h = max(0.0, building.height - corridor_h)
-        # Give top and bottom proportional to their required depth
-        if top_d_req + bottom_d_req > 0:
-            top_wing_h = rem_h * (top_d_req / (top_d_req + bottom_d_req))
-            bottom_wing_h = rem_h - top_wing_h
-        else:
-            top_wing_h = bottom_wing_h = rem_h / 2
-
-        top_wing = Rect(building.x, building.y, building.width, top_wing_h)
-        corridor_rect = Rect(building.x, top_wing.bottom, building.width, corridor_h)
-        bottom_wing = Rect(building.x, corridor_rect.bottom, building.width, bottom_wing_h)
-
-        placed_rooms += _layout_wing(top_wing, top_rooms, is_top_wing=True)
-        placed_rooms += _layout_wing(bottom_wing, bottom_rooms, is_top_wing=False)
-
-        corridor = SiteFeature(FeatureType.CORRIDOR, corridor_rect, "Central Hallway")
+    # normalize score to a 0-100 scale (just a simple heuristic)
+    total_score = max(0, min(100, 100 - (main_score + annex_score) * 2))
 
     plan = FloorPlan(
         plot=plot,
         building=building,
         rooms=placed_rooms,
         annex_building=annex_building,
-        annex_rooms=placed_annex_rooms,
+        annex_rooms=placed_annex,
         plot_size_sqm=plot_size,
         floors=floors,
         usage=usage,
         parking_spaces=parking,
-        wall_thickness=0.2
+        wall_thickness=0.2,
+        score=total_score
     )
-
-    # Add Back Door to the Corridor
-    if corridor:
-        # Add a 1m single door at the right end of the corridor (Back door)
-        back_door_len = min(1.0, corridor_rect.height)
-        back_door_y = corridor_rect.y + (corridor_rect.height - back_door_len) / 2
-        
-        plan.rooms.append(Room(
-            type="corridor_entrance",
-            label="Exit",
-            bounds=corridor_rect,
-            openings=[
-                Opening(OpeningType.DOOR, corridor_rect.right, back_door_y, back_door_len, Orientation.VERTICAL)
-            ],
-            furniture=[]
-        ))
-
-    plan.site_features += _build_landscaping(plot)
-    if corridor is not None:
-        plan.site_features.append(corridor)
-    plan.site_features += _build_parking(plot, parking)
-
-    # Path from Living Room front door to street
-    front_door_x = building.x + building.width / 2 - 0.75
-    front_door_y = building.bottom
+    
+    plan.site_features.append(SiteFeature(FeatureType.GRASS, Rect(0, 0, plot.width, plot.height)))
+    
+    front_door_x = shift_x + main_w / 2 - 0.75
+    front_door_y = shift_y + main_h
     for r in plan.rooms:
         if r.type == "living_rooms":
-            door_total = min(2.0, r.bounds.width * 0.45)
-            left_center = r.bounds.x + r.bounds.width * 0.25
-            front_door_x = left_center - 0.75
+            front_door_x = r.bounds.cx - 0.75
             front_door_y = r.bounds.bottom
             break
             
-    plan.site_features.append(SiteFeature(FeatureType.PATH, Rect(front_door_x, front_door_y, 1.5, plot.height - front_door_y)))
+    # Irregular path routing
+    path_points = []
+    start_x = front_door_x + 0.75
+    
+    drop_y = max(front_door_y + 1.5, plan.building.bottom + 1.0)
+    center_road_x = plot.width / 2
+    
+    path_points.append((start_x, front_door_y))
+    path_points.append((start_x, drop_y))
+    
+    if abs(start_x - center_road_x) > 1.5:
+        path_points.append((center_road_x, drop_y))
+        path_points.append((center_road_x, plot.height))
+    else:
+        path_points.append((start_x, plot.height))
+        
+    plan.site_features.append(SiteFeature(
+        type=FeatureType.PATH,
+        bounds=Rect(min(start_x, center_road_x)-0.75, front_door_y, abs(start_x - center_road_x)+1.5, plot.height - front_door_y),
+        points=path_points
+    ))
+    
+    if parking > 0:
+        stall_w, stall_h = 2.5, 3.0
+        start_x, start_y = 2.0, plot.height - stall_h
+        for i in range(min(parking, 5)):
+            plan.site_features.append(SiteFeature(FeatureType.PARKING, Rect(start_x + i * 3.0, start_y, stall_w, stall_h), "P"))
 
     return plan

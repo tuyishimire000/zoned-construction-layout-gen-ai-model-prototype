@@ -7,6 +7,7 @@ from app.api.schemas import (
 )
 from app.nlp.extractor import extract_parameters
 from app.compliance.validator import validate_project
+from app.compliance.graph_validator import validate_and_repair_graph
 from app.visualization.floorplan_generator import generate_floorplan
 from app.visualization.site_plan_spec import build_site_plan
 from app.visualization.png_renderer import render_png, render_png_bytes
@@ -40,9 +41,19 @@ def analyze_project(request: ProjectDescriptionRequest):
             status_code=500, detail=f"Error in NLP extraction: {str(e)}"
         )
 
+    # 1.5 Graph Validation and Repair
+    try:
+        params_dict, ai_fixes = validate_and_repair_graph(params_dict)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error in graph validation: {str(e)}"
+        )
+
     # 2. Compliance Evaluation
     try:
         compliance_dict = validate_project(params_dict)
+        if ai_fixes:
+            compliance_dict["recommendations"].extend(ai_fixes)
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error in compliance validation: {str(e)}"
@@ -50,14 +61,16 @@ def analyze_project(request: ProjectDescriptionRequest):
 
     # 3. Floor Plan Generation
     try:
-        img_base64 = generate_floorplan(params_dict, compliance_dict)
+        img_data, score = generate_floorplan(params_dict, compliance_dict, request.export_format)
     except ValueError as e:
         raise HTTPException(
             status_code=400, detail=str(e)
         )
     except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
         raise HTTPException(
-            status_code=500, detail=f"Error in image generation: {str(e)}"
+            status_code=500, detail=f"Error in image generation: {str(e)}\n\n{tb}"
         )
 
     # Construct Report Data (passed to frontend for rendering)
@@ -69,7 +82,8 @@ def analyze_project(request: ProjectDescriptionRequest):
     return AnalysisResponse(
         extracted_parameters=ProjectParameters(**params_dict),
         compliance=ComplianceResult(**compliance_dict),
-        floor_plan_base64=img_base64,
+        floor_plan_base64=img_data,
+        architectural_score=score,
         report_data=report_data,
     )
 
@@ -80,16 +94,25 @@ def render_project(params: ProjectParameters):
     params_dict = params.model_dump()
     
     try:
+        params_dict, ai_fixes = validate_and_repair_graph(params_dict)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in graph validation: {str(e)}")
+
+    try:
         compliance_dict = validate_project(params_dict)
+        if ai_fixes:
+            compliance_dict["recommendations"].extend(ai_fixes)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error in compliance validation: {str(e)}")
 
     try:
-        img_base64 = generate_floorplan(params_dict, compliance_dict)
+        img_data, score = generate_floorplan(params_dict, compliance_dict)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error in image generation: {str(e)}")
+        import traceback
+        tb = traceback.format_exc()
+        raise HTTPException(status_code=500, detail=f"Error in image generation: {str(e)}\n\n{tb}")
 
     report_data = {
         "title": "Smart Building Compliance Report",
@@ -99,6 +122,7 @@ def render_project(params: ProjectParameters):
     return AnalysisResponse(
         extracted_parameters=params,
         compliance=ComplianceResult(**compliance_dict),
-        floor_plan_base64=img_base64,
+        floor_plan_base64=img_data,
+        architectural_score=score,
         report_data=report_data,
     )

@@ -11,7 +11,7 @@ same model feed the current PNG renderer today and a DXF/JSON exporter later.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 @dataclass
@@ -114,6 +114,7 @@ class SiteFeature:
     type: FeatureType
     bounds: Rect
     label: Optional[str] = None
+    points: Optional[List[Tuple[float, float]]] = None
 
 
 @dataclass
@@ -129,6 +130,7 @@ class FloorPlan:
 
     # Wall thickness in meters, used by renderers to draw double-line walls.
     wall_thickness: float = 0.2
+    score: float = 0.0
 
     # Project metadata, carried through for labels/title block.
     plot_size_sqm: float = 0.0
