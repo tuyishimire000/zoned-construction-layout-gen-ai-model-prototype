@@ -11,15 +11,16 @@ same model can feed future DXF/JSON exporters without touching the layout logic.
 """
 
 from .layout_engine import build_floorplan
-from .png_renderer import render_png
-from .svg_renderer import render_svg
+from .dxf_renderer import render_dxf, export_to_svg
 from typing import Tuple
 
-def generate_floorplan(params: dict, compliance: dict, export_format: str = "png") -> Tuple[str, float]:
-    """Build the layout model and render it to the specified format. Returns (image_data, score)."""
+def generate_floorplan(params: dict, compliance: dict, export_format: str = "png") -> Tuple[str, str, float]:
+    """Build the layout model and render it to the specified format and DXF. 
+    Returns (image_data, dxf_data, score).
+    """
     plan = build_floorplan(params, compliance)
     
-    if export_format == "svg":
-        return render_svg(plan), plan.score
-        
-    return render_png(plan), plan.score
+    doc, dxf_data = render_dxf(plan)
+    img_data = export_to_svg(doc)
+    
+    return img_data, dxf_data, plan.score

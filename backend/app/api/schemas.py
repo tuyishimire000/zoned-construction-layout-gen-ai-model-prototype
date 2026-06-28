@@ -49,5 +49,6 @@ class AnalysisResponse(BaseModel):
     extracted_parameters: ProjectParameters
     compliance: ComplianceResult
     floor_plan_base64: str
+    dxf_base64: Optional[str] = None
     architectural_score: float = 0.0
     report_data: Dict[str, Any]

@@ -9,8 +9,6 @@ from app.nlp.extractor import extract_parameters
 from app.compliance.validator import validate_project
 from app.compliance.graph_validator import validate_and_repair_graph
 from app.visualization.floorplan_generator import generate_floorplan
-from app.visualization.site_plan_spec import build_site_plan
-from app.visualization.png_renderer import render_png, render_png_bytes
 
 router = APIRouter()
 
@@ -61,7 +59,7 @@ def analyze_project(request: ProjectDescriptionRequest):
 
     # 3. Floor Plan Generation
     try:
-        img_data, score = generate_floorplan(params_dict, compliance_dict, request.export_format)
+        img_data, dxf_data, score = generate_floorplan(params_dict, compliance_dict, request.export_format)
     except ValueError as e:
         raise HTTPException(
             status_code=400, detail=str(e)
@@ -83,6 +81,7 @@ def analyze_project(request: ProjectDescriptionRequest):
         extracted_parameters=ProjectParameters(**params_dict),
         compliance=ComplianceResult(**compliance_dict),
         floor_plan_base64=img_data,
+        dxf_base64=dxf_data,
         architectural_score=score,
         report_data=report_data,
     )
@@ -106,7 +105,7 @@ def render_project(params: ProjectParameters):
         raise HTTPException(status_code=500, detail=f"Error in compliance validation: {str(e)}")
 
     try:
-        img_data, score = generate_floorplan(params_dict, compliance_dict)
+        img_data, dxf_data, score = generate_floorplan(params_dict, compliance_dict)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -123,6 +122,7 @@ def render_project(params: ProjectParameters):
         extracted_parameters=params,
         compliance=ComplianceResult(**compliance_dict),
         floor_plan_base64=img_data,
+        dxf_base64=dxf_data,
         architectural_score=score,
         report_data=report_data,
     )

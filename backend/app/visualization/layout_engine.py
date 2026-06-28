@@ -196,12 +196,37 @@ def _solve_grid(nodes: List[Dict], edges: List[Dict], iterations: int = 20) -> T
 
 def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[Dict]) -> Dict[str, List[Opening]]:
     openings = {n['id']: [] for n in nodes}
+    node_map = {n['id']: n['type'] for n in nodes}
+    
     for e in edges:
         ra, rb = e['room_a'], e['room_b']
         if ra not in room_rects or rb not in room_rects: continue
         r1, r2 = room_rects[ra], room_rects[rb]
         
+        type_a, type_b = node_map[ra], node_map[rb]
+        types_set = {type_a, type_b}
+        
+        is_passage = False
         door_len = 0.8
+        
+        if "living_rooms" in types_set:
+            is_passage = True
+            door_len = 1.6
+        elif "dining_rooms" in types_set:
+            is_passage = True
+            door_len = 1.0
+        elif "kitchens" in types_set or "outside_kitchens" in types_set:
+            is_passage = True
+            door_len = 0.9
+            
+        if not is_passage:
+            if "bathrooms" in types_set or "outside_bathrooms" in types_set:
+                door_len = 0.7
+            else:
+                door_len = 0.8
+                
+        op_type = OpeningType.PASSAGE if is_passage else OpeningType.DOOR
+        
         if abs(r1.right - r2.x) < 0.1 or abs(r2.right - r1.x) < 0.1:
             # Vertical wall
             is_r1_left = abs(r1.right - r2.x) < 0.1
@@ -210,8 +235,8 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
             if ye - ys >= door_len:
                 dy = ys + (ye - ys - door_len) / 2
                 swing = "right" if is_r1_left else "left"
-                openings[ra].append(Opening(OpeningType.DOOR, x, dy, door_len, Orientation.VERTICAL, swing=swing))
-                openings[rb].append(Opening(OpeningType.DOOR, x, dy, door_len, Orientation.VERTICAL, swing=swing))
+                openings[ra].append(Opening(op_type, x, dy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
+                openings[rb].append(Opening(op_type, x, dy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
         elif abs(r1.bottom - r2.y) < 0.1 or abs(r2.bottom - r1.y) < 0.1:
             # Horizontal wall
             is_r1_top = abs(r1.bottom - r2.y) < 0.1
@@ -220,8 +245,8 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
             if xe - xs >= door_len:
                 dx = xs + (xe - xs - door_len) / 2
                 swing = "down" if is_r1_top else "up"
-                openings[ra].append(Opening(OpeningType.DOOR, dx, y, door_len, Orientation.HORIZONTAL, swing=swing))
-                openings[rb].append(Opening(OpeningType.DOOR, dx, y, door_len, Orientation.HORIZONTAL, swing=swing))
+                openings[ra].append(Opening(op_type, dx, y, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
+                openings[rb].append(Opening(op_type, dx, y, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
 
     # Building bounding box to detect exterior walls
     min_x = min(r.x for r in room_rects.values()) if room_rects else 0
@@ -232,27 +257,30 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
     for n in nodes:
         nid = n['id']
         r = room_rects[nid]
-        if n['type'] not in ["corridors", "bathrooms"]: # Corridors and usually bathrooms don't get large feature windows
-            win_len = min(1.5, max(r.width, r.height) * 0.4)
-            if abs(r.y - min_y) < 0.1:
-                # Exterior top
-                openings[nid].append(Opening(OpeningType.WINDOW, r.cx - win_len/2, r.y, win_len, Orientation.HORIZONTAL))
-            elif abs(r.bottom - max_y) < 0.1:
-                # Exterior bottom
-                openings[nid].append(Opening(OpeningType.WINDOW, r.cx - win_len/2, r.bottom, win_len, Orientation.HORIZONTAL))
-            elif abs(r.x - min_x) < 0.1:
-                # Exterior left
-                openings[nid].append(Opening(OpeningType.WINDOW, r.x, r.cy - win_len/2, win_len, Orientation.VERTICAL))
-            elif abs(r.right - max_x) < 0.1:
-                # Exterior right
-                openings[nid].append(Opening(OpeningType.WINDOW, r.right, r.cy - win_len/2, win_len, Orientation.VERTICAL))
+        rtype = n['type']
+        if rtype not in ["corridors"]:
+            if rtype in ["bathrooms", "outside_bathrooms"]:
+                win_len = 0.6
+                style = "sliding"
+            else:
+                win_len = 1.6
+                style = "sliding"
+                
+            if r.width >= win_len or r.height >= win_len:
+                if abs(r.y - min_y) < 0.1:
+                    openings[nid].append(Opening(OpeningType.WINDOW, r.cx - win_len/2, r.y, win_len, Orientation.HORIZONTAL, style=style))
+                elif abs(r.bottom - max_y) < 0.1:
+                    openings[nid].append(Opening(OpeningType.WINDOW, r.cx - win_len/2, r.bottom, win_len, Orientation.HORIZONTAL, style=style))
+                elif abs(r.x - min_x) < 0.1:
+                    openings[nid].append(Opening(OpeningType.WINDOW, r.x, r.cy - win_len/2, win_len, Orientation.VERTICAL, style=style))
+                elif abs(r.right - max_x) < 0.1:
+                    openings[nid].append(Opening(OpeningType.WINDOW, r.right, r.cy - win_len/2, win_len, Orientation.VERTICAL, style=style))
                 
     # Front door
     for n in nodes:
         if n['type'] == 'living_rooms':
             r = room_rects[n['id']]
-            # Front door always on bottom edge, swinging up into the house
-            openings[n['id']].append(Opening(OpeningType.DOOR, r.cx - 0.5, r.bottom, 1.0, Orientation.HORIZONTAL, swing="up"))
+            openings[n['id']].append(Opening(OpeningType.DOOR, r.cx - 0.5, r.bottom, 1.0, Orientation.HORIZONTAL, swing="up", style="pivot"))
             break
             
     return openings
