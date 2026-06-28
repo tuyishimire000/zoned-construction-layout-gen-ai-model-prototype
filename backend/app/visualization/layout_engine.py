@@ -289,9 +289,8 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
         def add_door(o_type, dx, dy, dlen, ori, swing):
             openings[ra].append(Opening(o_type, dx, dy, dlen, ori, swing=swing, style="swing"))
             openings[rb].append(Opening(o_type, dx, dy, dlen, ori, swing=swing, style="swing"))
-            if o_type == OpeningType.DOOR:
-                room_doors_count[ra] += 1
-                room_doors_count[rb] += 1
+            room_doors_count[ra] += 1
+            room_doors_count[rb] += 1
         
         if abs(r1.right - r2.x) < 0.1 or abs(r2.right - r1.x) < 0.1:
             # Vertical wall
@@ -334,24 +333,29 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
                     is_r_left = abs(r.right - other_r.x) < 0.1
                     x = r.right if is_r_left else other_r.right
                     ys, ye = max(r.y, other_r.y), min(r.bottom, other_r.bottom)
-                    door_len = 0.8
+                    is_passage = all("corridor" in t.lower() or "living" in t.lower() or "dining" in t.lower() or "kitchen" in t.lower() for t in types_set)
+                    fallback_op_type = OpeningType.PASSAGE if is_passage else OpeningType.DOOR
+                    door_len = 1.2 if is_passage else 0.8
                     if ye - ys >= door_len:
                         dy = ys + (ye - ys - door_len) / 2
                         swing = "right" if is_r_left else "left"
-                        openings[nid].append(Opening(OpeningType.DOOR, x, dy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
-                        openings[other_id].append(Opening(OpeningType.DOOR, x, dy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
+                        openings[nid].append(Opening(fallback_op_type, x, dy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
+                        openings[other_id].append(Opening(fallback_op_type, x, dy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
                         room_doors_count[nid] += 1
                         break
                 elif abs(r.bottom - other_r.y) < 0.1 or abs(other_r.bottom - r.y) < 0.1:
                     is_r_top = abs(r.bottom - other_r.y) < 0.1
                     y = r.bottom if is_r_top else other_r.bottom
                     xs, xe = max(r.x, other_r.x), min(r.right, other_r.right)
-                    door_len = 0.8
+                    
+                    is_passage = all("corridor" in t.lower() or "living" in t.lower() or "dining" in t.lower() or "kitchen" in t.lower() for t in types_set)
+                    fallback_op_type = OpeningType.PASSAGE if is_passage else OpeningType.DOOR
+                    door_len = 1.2 if is_passage else 0.8
                     if xe - xs >= door_len:
                         dx = xs + (xe - xs - door_len) / 2
                         swing = "down" if is_r_top else "up"
-                        openings[nid].append(Opening(OpeningType.DOOR, dx, y, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
-                        openings[other_id].append(Opening(OpeningType.DOOR, dx, y, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
+                        openings[nid].append(Opening(fallback_op_type, dx, y, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
+                        openings[other_id].append(Opening(fallback_op_type, dx, y, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
                         room_doors_count[nid] += 1
                         break
 

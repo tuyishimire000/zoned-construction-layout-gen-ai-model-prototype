@@ -128,7 +128,14 @@ def render_dxf_bytes(plan: FloorPlan) -> tuple[ezdxf.document.Drawing, bytes]:
             hatch.paths.add_polyline_path(wipeout_pts, is_closed=True)
             
             if op.type == OpeningType.PASSAGE:
-                # Passage is just the wipeout, no jambs or arcs
+                # Draw jambs (wall end-caps) for cased openings
+                if is_horiz:
+                    msp.add_line((x1, y1 - wt/2), (x1, y1 + wt/2), dxfattribs={"layer": layer})
+                    msp.add_line((x2, y2 - wt/2), (x2, y2 + wt/2), dxfattribs={"layer": layer})
+                else:
+                    msp.add_line((x1 - wt/2, y1), (x1 + wt/2, y1), dxfattribs={"layer": layer})
+                    msp.add_line((x2 - wt/2, y2), (x2 + wt/2, y2), dxfattribs={"layer": layer})
+                # No door leaf or arc
                 continue
                 
             elif op.type == OpeningType.DOOR:
