@@ -64,15 +64,15 @@ def render_dxf_bytes(plan: FloorPlan) -> tuple[ezdxf.document.Drawing, bytes]:
             rx, ry, rw, rh = sf.bounds.x, sf.bounds.y, sf.bounds.width, sf.bounds.height
             if rw > rh:
                 _draw_rect_filled(msp, (rx-10, ry, rw+20, rh), outline_layer=None, fill_layer="ROAD_FILL")
-                msp.add_text(sf.label or "EXISTING ROAD", dxfattribs={"layer": "TEXT", "height": 1.5}).set_placement((rx + rw/2, ry + rh/2), align=TextEntityAlignment.MIDDLE_CENTER)
+                msp.add_text(sf.label or "EXISTING ROAD", dxfattribs={"layer": "SITE_TEXT", "height": 1.5}).set_placement((rx + rw/2, ry + rh/2), align=TextEntityAlignment.MIDDLE_CENTER)
             else:
-                text = msp.add_text(sf.label or "EXISTING ROAD", dxfattribs={"layer": "TEXT", "height": 1.5}).set_placement((rx + rw/2, ry + rh/2), align=TextEntityAlignment.MIDDLE_CENTER)
+                text = msp.add_text(sf.label or "EXISTING ROAD", dxfattribs={"layer": "SITE_TEXT", "height": 1.5}).set_placement((rx + rw/2, ry + rh/2), align=TextEntityAlignment.MIDDLE_CENTER)
                 text.dxf.rotation = 90
         else:
             # Grass, Parking, etc
-            _draw_rect_filled(msp, (sf.bounds.x, sf.bounds.y, sf.bounds.width, sf.bounds.height), outline_layer=None, fill_layer="ROOM_GREEN")
+            _draw_rect_filled(msp, (sf.bounds.x, sf.bounds.y, sf.bounds.width, sf.bounds.height), outline_layer=None, fill_layer="SITE_GREEN")
             if sf.label:
-                mtext = msp.add_mtext(sf.label.upper(), dxfattribs={"layer": "TEXT", "char_height": 0.18, "color": 7})
+                mtext = msp.add_mtext(sf.label.upper(), dxfattribs={"layer": "SITE_TEXT", "char_height": 0.18, "color": 7})
                 mtext.set_location((sf.bounds.cx, sf.bounds.cy), attachment_point=5)
 
     # 1. Plot
@@ -253,7 +253,7 @@ def export_to_svg(doc: ezdxf.document.Drawing) -> str:
     from ezdxf.addons.drawing import Frontend, RenderContext
     from ezdxf.addons.drawing.svg import SVGBackend
     from ezdxf.addons.drawing.config import Configuration, BackgroundPolicy, ColorPolicy, LinePolicy
-    from ezdxf.addons.drawing.layout import Page
+    from ezdxf.addons.drawing.layout import Page, Margins
     from ezdxf.fonts.fonts import font_manager
     import os
     import pathlib
@@ -265,6 +265,15 @@ def export_to_svg(doc: ezdxf.document.Drawing) -> str:
         font_manager._fallback_font_name = "roboto-regular.ttf"
         
     msp = doc.modelspace()
+    
+    # Delete massive background elements so the SVG tightly crops around the building geometry
+    to_delete = []
+    for e in msp:
+        if e.dxf.layer in ("GRID", "PLOT_OUTLINE", "PLOT_FILL", "ROAD_FILL", "SITE_GREEN", "SITE_TEXT"):
+            to_delete.append(e)
+    for e in to_delete:
+        msp.delete_entity(e)
+        
     context = RenderContext(doc)
     backend = SVGBackend()
     
@@ -279,7 +288,8 @@ def export_to_svg(doc: ezdxf.document.Drawing) -> str:
     frontend = Frontend(context, backend, config=config)
     frontend.draw_layout(msp)
     
-    page = Page(width=0, height=0)
+    # Export with small margin so it automatically fits
+    page = Page(width=0, height=0, margins=Margins(2, 2, 2, 2))
     svg_string = backend.get_string(page)
     
     # Return as base64 data URI
