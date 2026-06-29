@@ -173,10 +173,18 @@ function App() {
             <>
                 <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem'}}>
                     <h3 style={{margin: 0}}>Schematic Floor Plan</h3>
-                    <button className="btn" onClick={handleAnalyze} disabled={loading} style={{display: 'flex', alignItems: 'center', gap: '6px', padding: '0.5rem 1rem', fontSize: '0.9rem'}}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.92-10.26l5.57 5.57"/></svg>
-                        Regenerate
-                    </button>
+                    <div style={{display: 'flex', gap: '8px'}}>
+                        {result.dxf_base64 && (
+                            <a href={result.dxf_base64} download="floorplan.dxf" className="btn" style={{backgroundColor: '#10b981', display: 'flex', alignItems: 'center', gap: '6px', padding: '0.5rem 1rem', fontSize: '0.9rem', textDecoration: 'none', color: 'white'}}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                Download CAD (DXF)
+                            </a>
+                        )}
+                        <button className="btn" onClick={handleAnalyze} disabled={loading} style={{display: 'flex', alignItems: 'center', gap: '6px', padding: '0.5rem 1rem', fontSize: '0.9rem'}}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.92-10.26l5.57 5.57"/></svg>
+                            Regenerate
+                        </button>
+                    </div>
                 </div>
                 <div className="image-container">
                   <img src={result.floor_plan_base64} alt="Floor plan" />

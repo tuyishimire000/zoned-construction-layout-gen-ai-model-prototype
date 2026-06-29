@@ -52,21 +52,11 @@ class Orientation(str, Enum):
 class OpeningType(str, Enum):
     DOOR = "door"
     WINDOW = "window"
+    PASSAGE = "passage"
 
 
 @dataclass
 class Opening:
-    """A door or window, modelled as a segment lying on a wall.
-
-    For doors, `swing` and `hinge_at_start` describe how the leaf opens so the
-    renderer can draw a leaf line + swing arc. `swing` is the direction the leaf
-    rotates toward, relative to the wall:
-      - horizontal wall: "up" or "down"
-      - vertical wall:   "left" or "right"
-    `hinge_at_start` puts the hinge at (x, y); otherwise at the far end of the
-    segment. Windows leave both as their defaults.
-    """
-
     type: OpeningType
     x: float
     y: float
@@ -74,15 +64,11 @@ class Opening:
     orientation: Orientation = Orientation.HORIZONTAL
     swing: Optional[str] = None
     hinge_at_start: bool = True
+    style: str = "swing"
 
 
 @dataclass
 class Furniture:
-    """A piece of furniture, anchored at its top-left corner in meters.
-
-    `type` is a stable key (e.g. "bed", "sofa") that renderers map to a glyph.
-    """
-
     type: str
     bounds: Rect
 
@@ -91,8 +77,8 @@ class Furniture:
 class Room:
     """A single room/space within the building footprint."""
 
-    type: str  # category key, e.g. "bedrooms" (matches the extractor/validator)
-    label: str  # human-readable, e.g. "Bedroom"
+    type: str
+    label: str
     bounds: Rect
     openings: List[Opening] = field(default_factory=list)
     furniture: List[Furniture] = field(default_factory=list)
@@ -109,7 +95,7 @@ class FeatureType(str, Enum):
 
 @dataclass
 class SiteFeature:
-    """A non-room element of the site (landscaping, circulation, parking)."""
+    """A non-room element of the site."""
 
     type: FeatureType
     bounds: Rect
@@ -128,11 +114,9 @@ class FloorPlan:
     annex_rooms: List[Room] = field(default_factory=list)
     site_features: List[SiteFeature] = field(default_factory=list)
 
-    # Wall thickness in meters, used by renderers to draw double-line walls.
     wall_thickness: float = 0.2
     score: float = 0.0
 
-    # Project metadata, carried through for labels/title block.
     plot_size_sqm: float = 0.0
     floors: int = 1
     usage: str = "residential"
