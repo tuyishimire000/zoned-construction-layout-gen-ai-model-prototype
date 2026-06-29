@@ -44,34 +44,41 @@ def validate_and_repair_graph(params: Dict[str, Any]) -> Tuple[Dict[str, Any], L
         is_sanitation_violation = is_bath and (is_kitchen or is_living)
         
         if is_privacy_violation or is_sanitation_violation:
-            # We must break this connection and insert a corridor
+            # We must break this connection and route through a central corridor
             connections_to_remove.append(idx)
             
-            corridor_id = f"inserted_corridor_{corridors_added + 1}"
+            corridor_id = "inserted_central_corridor"
             
-            # Add new corridor room
-            rooms.append({"id": corridor_id, "room_type": "corridors"})
-            room_types[corridor_id] = "corridors"
-            room_counts["corridors"] = room_counts.get("corridors", 0) + 1
-            corridors_added += 1
+            if corridors_added == 0:
+                # Add central corridor room only once
+                rooms.append({"id": corridor_id, "room_type": "corridors"})
+                room_types[corridor_id] = "corridors"
+                room_counts["corridors"] = room_counts.get("corridors", 0) + 1
+                corridors_added += 1
             
-            # Create two new connections routing through the corridor
-            new_connections.append({
-                "room_a": ra_id,
-                "room_b": corridor_id,
-                "weight": conn.get("weight", 5)
-            })
-            new_connections.append({
-                "room_a": corridor_id,
-                "room_b": rb_id,
-                "weight": conn.get("weight", 5)
-            })
+            # Ensure the two rooms are connected to the central corridor
+            # Check if connection already exists to prevent duplicates
+            has_ra_conn = any(c['room_a'] == ra_id and c['room_b'] == corridor_id or c['room_a'] == corridor_id and c['room_b'] == ra_id for c in new_connections)
+            has_rb_conn = any(c['room_a'] == rb_id and c['room_b'] == corridor_id or c['room_a'] == corridor_id and c['room_b'] == rb_id for c in new_connections)
+            
+            if not has_ra_conn:
+                new_connections.append({
+                    "room_a": ra_id,
+                    "room_b": corridor_id,
+                    "weight": conn.get("weight", 5)
+                })
+            if not has_rb_conn:
+                new_connections.append({
+                    "room_a": corridor_id,
+                    "room_b": rb_id,
+                    "weight": conn.get("weight", 5)
+                })
             
             # Log the fix
             if is_privacy_violation:
-                issues_fixed.append(f"AI Privacy Fix: A bedroom was directly connected to a living area. Inserted a hallway ({corridor_id}) to act as a privacy buffer.")
+                issues_fixed.append(f"AI Privacy Fix: A bedroom was directly connected to a living area. Routed through central hallway ({corridor_id}) to act as a privacy buffer.")
             elif is_sanitation_violation:
-                issues_fixed.append(f"AI Sanitation Fix: A bathroom was directly connected to a living area/kitchen. Inserted a hallway ({corridor_id}) to act as a buffer.")
+                issues_fixed.append(f"AI Sanitation Fix: A bathroom was directly connected to a living area/kitchen. Routed through central hallway ({corridor_id}) to act as a buffer.")
 
     if connections_to_remove:
         # Rebuild connections list without the removed ones, and add the new ones

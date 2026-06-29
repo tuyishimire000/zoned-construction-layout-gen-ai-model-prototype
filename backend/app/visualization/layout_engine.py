@@ -408,6 +408,39 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
             intervals.append((cur, main_bounds[1]))
         return [i for i in intervals if i[1] - i[0] > 0.1]
 
+    all_r = list(room_rects.values())
+    
+    # Place External Doors
+    def place_external_door(room_type_keywords, door_len=1.0, fallback_type_keywords=None):
+        target_nids = [n['id'] for n in nodes if any(kw in n['type'].lower() for kw in room_type_keywords)]
+        if not target_nids and fallback_type_keywords:
+            target_nids = [n['id'] for n in nodes if any(kw in n['type'].lower() for kw in fallback_type_keywords)]
+            
+        for nid in target_nids:
+            if nid not in room_rects: continue
+            r = room_rects[nid]
+            for edge in ['bottom', 'top', 'left', 'right']:
+                intervals = get_exposed_intervals(r, edge, all_r)
+                for start, end in intervals:
+                    if end - start >= door_len + 0.4:
+                        if edge in ('top', 'bottom'):
+                            cx = start + (end - start)/2
+                            cy = r.y if edge == 'top' else r.bottom
+                            swing = "down" if edge == 'top' else "up"
+                            openings[nid].append(Opening(OpeningType.DOOR, cx, cy, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
+                        else:
+                            cx = r.x if edge == 'left' else r.right
+                            cy = start + (end - start)/2
+                            swing = "right" if edge == 'left' else "left"
+                            openings[nid].append(Opening(OpeningType.DOOR, cx, cy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
+                        return True
+        return False
+        
+    # 1. Main Entrance (Living Room or Corridor)
+    place_external_door(["living"], 1.0, ["corridor"])
+    # 2. Back Door (Kitchen or Corridor)
+    place_external_door(["kitchen"], 0.9, ["corridor"])
+
     all_rects = list(room_rects.values())
     
     for n in nodes:
