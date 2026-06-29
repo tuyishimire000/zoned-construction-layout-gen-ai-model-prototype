@@ -451,8 +451,7 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
     # 2. Back Door (Kitchen or Corridor)
     place_external_door(["kitchen"], 0.9, ["corridor"])
 
-    all_rects = list(room_rects.values())
-    
+    all_rects = all_r
     for n in nodes:
         nid = n['id']
         r = room_rects[nid]
