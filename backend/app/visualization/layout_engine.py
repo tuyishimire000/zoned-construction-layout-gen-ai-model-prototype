@@ -463,7 +463,10 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
             
         is_bathroom = rtype in ["bathrooms", "outside_bathrooms"]
         
+        window_placed = False
         for edge in ['top', 'bottom', 'left', 'right']:
+            if window_placed:
+                break
             intervals = get_exposed_intervals(r, edge, all_rects)
             for (start, end) in intervals:
                 wall_len = end - start
@@ -471,7 +474,7 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
                 if is_bathroom:
                     win_len = 0.6
                 else:
-                    win_len = min(2.0, max(1.0, wall_len * 0.4))
+                    win_len = min(4.0, max(1.0, wall_len * 0.4))
                     
                 if wall_len >= win_len + 0.4:
                     center = start + wall_len / 2
@@ -488,14 +491,10 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
                         openings[nid].append(Opening(OpeningType.WINDOW, r.x, center - win_len/2, win_len, Orientation.VERTICAL, style="sliding"))
                     elif edge == 'right':
                         openings[nid].append(Opening(OpeningType.WINDOW, r.right, center - win_len/2, win_len, Orientation.VERTICAL, style="sliding"))
+                    window_placed = True
                     break
 
-    # Front door
-    for n in nodes:
-        if n['type'] == 'living_rooms':
-            r = room_rects[n['id']]
-            openings[n['id']].append(Opening(OpeningType.DOOR, r.cx - 0.5, r.bottom, 1.0, Orientation.HORIZONTAL, swing="up", style="pivot"))
-            break
+
             
     return openings
 
