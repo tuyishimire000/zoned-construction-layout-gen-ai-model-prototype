@@ -166,16 +166,7 @@ def _solve_grid(nodes: List[Dict], edges: List[Dict], iterations: int = 20) -> T
             h = MIN_DEPTHS.get(rtype, 3.0)
             
             if "corridor" in rtype.lower():
-                # Cap dimensions based on grid neighbors
-                has_hx = (gx-1, gy) in grid or (gx+1, gy) in grid
-                has_vy = (gx, gy-1) in grid or (gx, gy+1) in grid
-                if has_hx and not has_vy:
-                    h = min(1.5, h)
-                elif has_vy and not has_hx:
-                    w = min(1.5, w)
-                else:
-                    w = min(1.5, w)
-                    h = min(1.5, h)
+                w, h = 1.5, 1.5
                     
             rects[nid] = Rect(gx * 4.0, gy * 4.0, w, h)
             
@@ -225,6 +216,35 @@ def _solve_grid(nodes: List[Dict], edges: List[Dict], iterations: int = 20) -> T
                             shift = (pen_y / 2 + 0.05) * (1 if dy > 0 else -1)
                             r1.y -= shift
                             r2.y += shift
+
+            # Corridor stretching
+            for nid, r in rects.items():
+                if "corridor" in node_map[nid]['type'].lower():
+                    # Find connected rooms
+                    connected_r = [rects[e['room_b']] for e in edges if e['room_a'] == nid and e['room_b'] in rects] + \
+                                  [rects[e['room_a']] for e in edges if e['room_b'] == nid and e['room_a'] in rects]
+                    
+                    if len(connected_r) >= 2:
+                        min_cx = min(cr.cx for cr in connected_r)
+                        max_cx = max(cr.cx for cr in connected_r)
+                        min_cy = min(cr.cy for cr in connected_r)
+                        max_cy = max(cr.cy for cr in connected_r)
+                        
+                        span_w = max_cx - min_cx
+                        span_h = max_cy - min_cy
+                        
+                        # We want the corridor to span between the centers of the furthest connected rooms
+                        # minus half the width of those rooms, but roughly span_w * 0.8 works well as an approximation.
+                        if span_w > span_h:
+                            target_w = max(1.5, span_w * 0.8)
+                            target_h = 1.5
+                        else:
+                            target_w = 1.5
+                            target_h = max(1.5, span_h * 0.8)
+                            
+                        # Smoothly adapt width/height
+                        r.width += (target_w - r.width) * 0.1
+                        r.height += (target_h - r.height) * 0.1
 
         # Snap to 0.1 grid
         for r in rects.values():
