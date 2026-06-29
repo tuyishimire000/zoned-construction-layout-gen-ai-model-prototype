@@ -47,14 +47,23 @@ def validate_and_repair_graph(params: Dict[str, Any]) -> Tuple[Dict[str, Any], L
             # We must break this connection and route through a central corridor
             connections_to_remove.append(idx)
             
-            corridor_id = "inserted_central_corridor"
-            
-            if corridors_added == 0:
-                # Add central corridor room only once
-                rooms.append({"id": corridor_id, "room_type": "corridors"})
-                room_types[corridor_id] = "corridors"
-                room_counts["corridors"] = room_counts.get("corridors", 0) + 1
-                corridors_added += 1
+            # Find an existing corridor
+            existing_corridor_id = None
+            for r in rooms:
+                if "corridor" in r.get("room_type", "").lower():
+                    existing_corridor_id = r["id"]
+                    break
+                    
+            if existing_corridor_id:
+                corridor_id = existing_corridor_id
+            else:
+                corridor_id = "inserted_central_corridor"
+                if corridors_added == 0:
+                    # Add central corridor room only once
+                    rooms.append({"id": corridor_id, "room_type": "corridors"})
+                    room_types[corridor_id] = "corridors"
+                    room_counts["corridors"] = room_counts.get("corridors", 0) + 1
+                    corridors_added += 1
             
             # Ensure the two rooms are connected to the central corridor
             # Check if connection already exists to prevent duplicates

@@ -4,17 +4,50 @@ import ezdxf
 from ezdxf.enums import TextEntityAlignment
 from app.visualization.model import FloorPlan, Room, SiteFeature, FeatureType, Opening, OpeningType, Furniture, Orientation
 
-def _draw_rect_filled(msp, rect, outline_layer, fill_layer, lineweight=-3, const_width=0.0):
+def _draw_rect_filled(msp, rect, outline_layer, fill_layer, lineweight=0, const_width=0, room=None):
     x, y, w, h = rect
-    points = [(x, y), (x + w, y), (x + w, y + h), (x, y + h), (x, y)]
     if fill_layer:
         hatch = msp.add_hatch(color=256, dxfattribs={"layer": fill_layer})
-        hatch.paths.add_polyline_path(points, is_closed=True)
+        hatch.paths.add_polyline_path([(x, y), (x+w, y), (x+w, y+h), (x, y+h), (x, y)], is_closed=True)
+        
     if outline_layer:
-        attribs = {"layer": outline_layer, "lineweight": lineweight}
-        if const_width > 0:
-            attribs["const_width"] = const_width
-        msp.add_lwpolyline(points, dxfattribs=attribs)
+        if room and hasattr(room, 'openings'):
+            gaps_top, gaps_bottom, gaps_left, gaps_right = [], [], [], []
+            for op in room.openings:
+                is_horiz = op.orientation == Orientation.HORIZONTAL
+                # the opening is defined by its x,y and length
+                gap_len = op.length
+                start_op = op.x if is_horiz else op.y
+                end_op = (op.x + op.length) if is_horiz else (op.y + op.length)
+                
+                if is_horiz:
+                    if abs(op.y - y) < 0.1: gaps_top.append((start_op, end_op))
+                    elif abs(op.y - (y+h)) < 0.1: gaps_bottom.append((start_op, end_op))
+                else:
+                    if abs(op.x - x) < 0.1: gaps_left.append((start_op, end_op))
+                    elif abs(op.x - (x+w)) < 0.1: gaps_right.append((start_op, end_op))
+            
+            def draw_broken_edge(start_val, end_val, gaps, is_horiz, coord):
+                curr = start_val
+                for gs, ge in sorted(gaps):
+                    if curr < gs:
+                        pts = [(curr, coord), (gs, coord)] if is_horiz else [(coord, curr), (coord, gs)]
+                        msp.add_lwpolyline(pts, dxfattribs={"layer": outline_layer, "lineweight": lineweight, "const_width": const_width})
+                    curr = max(curr, ge)
+                if curr < end_val:
+                    pts = [(curr, coord), (end_val, coord)] if is_horiz else [(coord, curr), (coord, end_val)]
+                    msp.add_lwpolyline(pts, dxfattribs={"layer": outline_layer, "lineweight": lineweight, "const_width": const_width})
+                    
+            draw_broken_edge(x, x+w, gaps_top, True, y)
+            draw_broken_edge(x, x+w, gaps_bottom, True, y+h)
+            draw_broken_edge(y, y+h, gaps_left, False, x)
+            draw_broken_edge(y, y+h, gaps_right, False, x+w)
+        else:
+            points = [(x, y), (x+w, y), (x+w, y+h), (x, y+h), (x, y)]
+            attribs = {"layer": outline_layer, "lineweight": lineweight}
+            if const_width > 0:
+                attribs["const_width"] = const_width
+            msp.add_lwpolyline(points, dxfattribs=attribs)
 
 def _rgb(r, g, b):
     return ezdxf.colors.rgb2int((r, g, b))
@@ -87,7 +120,7 @@ def render_dxf_bytes(plan: FloorPlan) -> tuple[ezdxf.document.Drawing, bytes]:
         else:
             fill_layer = "ROOM_FILL"
             
-        _draw_rect_filled(msp, (r.bounds.x, r.bounds.y, r.bounds.width, r.bounds.height), outline_layer="WALLS", fill_layer=fill_layer, const_width=plan.wall_thickness)
+        _draw_rect_filled(msp, (r.bounds.x, r.bounds.y, r.bounds.width, r.bounds.height), outline_layer="WALLS", fill_layer=fill_layer, const_width=plan.wall_thickness, room=r)
         
         # Room text
         label = r.label.upper() if getattr(r, "label", None) else r.type.replace('_', ' ').upper()
@@ -116,16 +149,8 @@ def render_dxf_bytes(plan: FloorPlan) -> tuple[ezdxf.document.Drawing, bytes]:
             x2 = op.x + (op.length if is_horiz else 0)
             y2 = op.y + (0 if is_horiz else op.length)
             
-            # Draw Wipeout to cut the thick wall
+            # Draw Wipeout removed because wall lines are dynamically broken
             wt = plan.wall_thickness
-            gap = 0.05
-            if is_horiz:
-                wipeout_pts = [(x1, y1 - wt/2 - gap), (x2, y1 - wt/2 - gap), (x2, y1 + wt/2 + gap), (x1, y1 + wt/2 + gap), (x1, y1 - wt/2 - gap)]
-            else:
-                wipeout_pts = [(x1 - wt/2 - gap, y1), (x1 + wt/2 + gap, y1), (x1 + wt/2 + gap, y2), (x1 - wt/2 - gap, y2), (x1 - wt/2 - gap, y1)]
-                
-            hatch = msp.add_hatch(color=256, dxfattribs={"layer": "WIPEOUT"})
-            hatch.paths.add_polyline_path(wipeout_pts, is_closed=True)
             
             if op.type == OpeningType.PASSAGE:
                 # Draw jambs (wall end-caps) for cased openings
