@@ -457,7 +457,10 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
         r = room_rects[nid]
         rtype = n['type']
         
-        if rtype in ["corridors", "storage"]:
+        if rtype in ["storage"]:
+            continue
+            
+        if rtype in ["corridors"] and max(r.width, r.height) <= 4.0:
             continue
             
         is_bathroom = rtype in ["bathrooms", "outside_bathrooms"]
