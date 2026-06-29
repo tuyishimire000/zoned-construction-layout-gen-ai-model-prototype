@@ -429,14 +429,20 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
                             swing = "down" if edge == 'top' else "up"
                             openings[nid].append(Opening(OpeningType.DOOR, cx, cy, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
                             # Add an obstacle rect so windows don't overlap the door
-                            all_r.append(Rect(cx - door_len/2 - 0.2, cy - 0.1, door_len + 0.4, 0.2))
+                            if edge == 'top':
+                                all_r.append(Rect(cx - door_len/2 - 0.2, r.y - 0.2, door_len + 0.4, 0.2))
+                            else:
+                                all_r.append(Rect(cx - door_len/2 - 0.2, r.bottom, door_len + 0.4, 0.2))
                         else:
                             cx = r.x if edge == 'left' else r.right
                             cy = start + (end - start)/2
                             swing = "right" if edge == 'left' else "left"
                             openings[nid].append(Opening(OpeningType.DOOR, cx, cy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
                             # Add an obstacle rect so windows don't overlap the door
-                            all_r.append(Rect(cx - 0.1, cy - door_len/2 - 0.2, 0.2, door_len + 0.4))
+                            if edge == 'left':
+                                all_r.append(Rect(r.x - 0.2, cy - door_len/2 - 0.2, 0.2, door_len + 0.4))
+                            else:
+                                all_r.append(Rect(r.right, cy - door_len/2 - 0.2, 0.2, door_len + 0.4))
                         return True
         return False
         
