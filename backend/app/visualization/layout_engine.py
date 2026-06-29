@@ -413,9 +413,6 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
     # Place External Doors
     def place_external_door(room_type_keywords, door_len=1.0, fallback_type_keywords=None):
         target_nids = [n['id'] for n in nodes if any(kw in n['type'].lower() for kw in room_type_keywords)]
-        if not target_nids and fallback_type_keywords:
-            target_nids = [n['id'] for n in nodes if any(kw in n['type'].lower() for kw in fallback_type_keywords)]
-            
         for nid in target_nids:
             if nid not in room_rects: continue
             r = room_rects[nid]
@@ -428,7 +425,6 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
                             cy = r.y if edge == 'top' else r.bottom
                             swing = "down" if edge == 'top' else "up"
                             openings[nid].append(Opening(OpeningType.DOOR, cx, cy, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
-                            # Add an obstacle rect so windows don't overlap the door
                             if edge == 'top':
                                 all_r.append(Rect(cx - door_len/2 - 0.2, r.y - 0.2, door_len + 0.4, 0.2))
                             else:
@@ -438,12 +434,40 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
                             cy = start + (end - start)/2
                             swing = "right" if edge == 'left' else "left"
                             openings[nid].append(Opening(OpeningType.DOOR, cx, cy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
-                            # Add an obstacle rect so windows don't overlap the door
                             if edge == 'left':
                                 all_r.append(Rect(r.x - 0.2, cy - door_len/2 - 0.2, 0.2, door_len + 0.4))
                             else:
                                 all_r.append(Rect(r.right, cy - door_len/2 - 0.2, 0.2, door_len + 0.4))
                         return True
+                        
+        if fallback_type_keywords:
+            fallback_nids = [n['id'] for n in nodes if any(kw in n['type'].lower() for kw in fallback_type_keywords)]
+            for nid in fallback_nids:
+                if nid not in room_rects: continue
+                r = room_rects[nid]
+                for edge in ['bottom', 'top', 'left', 'right']:
+                    intervals = get_exposed_intervals(r, edge, all_r)
+                    for start, end in intervals:
+                        if end - start >= door_len + 0.4:
+                            if edge in ('top', 'bottom'):
+                                cx = start + (end - start)/2
+                                cy = r.y if edge == 'top' else r.bottom
+                                swing = "down" if edge == 'top' else "up"
+                                openings[nid].append(Opening(OpeningType.DOOR, cx, cy, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
+                                if edge == 'top':
+                                    all_r.append(Rect(cx - door_len/2 - 0.2, r.y - 0.2, door_len + 0.4, 0.2))
+                                else:
+                                    all_r.append(Rect(cx - door_len/2 - 0.2, r.bottom, door_len + 0.4, 0.2))
+                            else:
+                                cx = r.x if edge == 'left' else r.right
+                                cy = start + (end - start)/2
+                                swing = "right" if edge == 'left' else "left"
+                                openings[nid].append(Opening(OpeningType.DOOR, cx, cy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
+                                if edge == 'left':
+                                    all_r.append(Rect(r.x - 0.2, cy - door_len/2 - 0.2, 0.2, door_len + 0.4))
+                                else:
+                                    all_r.append(Rect(r.right, cy - door_len/2 - 0.2, 0.2, door_len + 0.4))
+                            return True
         return False
         
     # 1. Main Entrance (Living Room or Corridor)

@@ -117,6 +117,50 @@ def validate_and_repair_graph(params: Dict[str, Any]) -> Tuple[Dict[str, Any], L
                 room_counts["corridors"] = max(0, room_counts.get("corridors", 0) - 1)
                 issues_fixed.append(f"AI Connectivity Fix: Pruned unnecessary dead-end corridor ({c}).")
 
+    # Ensure graph is fully connected
+    adj = {r["id"]: [] for r in rooms}
+    for conn in final_connections:
+        adj[conn["room_a"]].append(conn["room_b"])
+        adj[conn["room_b"]].append(conn["room_a"])
+        
+    visited = set()
+    def dfs(node):
+        visited.add(node)
+        for neighbor in adj[node]:
+            if neighbor not in visited:
+                dfs(neighbor)
+                
+    components = []
+    unvisited = set(adj.keys())
+    while unvisited:
+        start = unvisited.pop()
+        visited.clear()
+        dfs(start)
+        components.append(list(visited))
+        unvisited -= visited
+        
+    if len(components) > 1:
+        # Sort components by size descending
+        components.sort(key=len, reverse=True)
+        main_comp = components[0]
+        corridor_id = "inserted_central_corridor"
+        if not any(corridor_id in comp for comp in components):
+            rooms.append({"id": corridor_id, "room_type": "corridors"})
+            room_types[corridor_id] = "corridors"
+            room_counts["corridors"] = room_counts.get("corridors", 0) + 1
+            main_comp.append(corridor_id)
+            
+        # Connect 1 room from each disconnected component to the corridor
+        target_id = corridor_id if corridor_id in adj else main_comp[0]
+        for comp in components[1:]:
+            source_id = comp[0]
+            final_connections.append({
+                "room_a": source_id,
+                "room_b": target_id,
+                "weight": 5
+            })
+            issues_fixed.append(f"AI Connectivity Fix: Connected isolated room cluster starting with {source_id} to {target_id} to prevent floating rooms.")
+
     # Update the params
     graph["connections"] = final_connections
     graph["rooms"] = rooms
