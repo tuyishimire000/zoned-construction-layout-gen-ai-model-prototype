@@ -39,7 +39,7 @@ class ExtractorSchema(BaseModel):
     rooms: RoomCounts
     graph: LayoutGraph = Field(description="Topological map of how the rooms physically connect.")
 
-def extract_parameters(description: str) -> Dict[str, Any]:
+def extract_parameters_from_history(messages: list[dict]) -> Dict[str, Any]:
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY environment variable is missing. Please create a .env file and add your key.")
@@ -49,20 +49,27 @@ def extract_parameters(description: str) -> Dict[str, Any]:
     
     client = genai.Client()
     
+    # Format the conversation history into a single string for context
+    history_text = ""
+    for msg in messages:
+        role = "User" if msg["role"] == "user" else "Assistant"
+        history_text += f"{role}: {msg['content']}\n\n"
+        
     prompt = f"""
-    You are an expert architectural assistant. Extract building parameters, room counts, and generate an Adjacency Graph from the user request.
+    You are an expert architectural assistant. You are participating in a conversation with a user about a building design.
+    Based on the ENTIRE conversation history below, extract the CURRENT, FINAL building parameters, room counts, and generate an Adjacency Graph reflecting all of the user's latest updates and requests.
     
     Rules for the Adjacency Graph:
     1. For every room counted, create exactly that many RoomInstances with unique IDs.
     2. Define connections between rooms that should be adjacent.
     3. IMPORTANT: Assign a `weight` (1 to 10) to every connection. 10 means the connection is extremely critical (e.g., Living-Kitchen), 1 means it's a minor or optional connection.
-    4. IMPORTANT: Unless the user specifically requests an open layout or NO hallways, do NOT connect bedrooms directly to living rooms or kitchens. Create "corridor" nodes to act as central spines. If they DO ask for no hallways, honor their request and connect rooms directly!
-    5. Provide different layout styles based on clues in the prompt (e.g. L-shape if requested, courtyard if requested, otherwise standard functional flow).
+    4. IMPORTANT: Unless the user specifically requests an open layout or NO hallways, do NOT connect bedrooms directly to living rooms or kitchens. Create "corridor" nodes to act as central spines.
+    5. Provide different layout styles based on clues in the prompt.
     6. Always ensure standard rooms exist even if the user only specifies a subset (e.g., if they say "2-bedroom home", infer there must be a living room and a kitchen).
-    7. If the user asks for a "long", "linear", or "shotgun" style layout, do not connect many rooms to a single corridor. Instead, create a chain of multiple corridor nodes (e.g., corridor_1 connecting to corridor_2) so the layout can stretch out linearly!
-    8. If the user asks for bedrooms or living spaces in a separate annex, guest house, or outdoor area, you MUST classify those specific rooms as "maid_rooms" so the system knows to place them in the separate annex building.
+    7. If the user asks for bedrooms or living spaces in a separate annex, guest house, or outdoor area, you MUST classify those specific rooms as "maid_rooms" so the system knows to place them in the separate annex building.
     
-    User Request: "{description}"
+    CONVERSATION HISTORY:
+    {history_text}
     """
     
     response = client.models.generate_content(
@@ -80,3 +87,7 @@ def extract_parameters(description: str) -> Dict[str, Any]:
         return data
     except Exception as e:
         raise ValueError(f"Failed to parse AI output: {e}")
+
+def extract_parameters(description: str) -> Dict[str, Any]:
+    # Backward compatibility for the /analyze endpoint
+    return extract_parameters_from_history([{"role": "user", "content": description}])

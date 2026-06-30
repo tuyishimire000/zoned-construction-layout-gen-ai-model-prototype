@@ -55,13 +55,24 @@ An intelligent building compliance assessment and generative layout system. It u
    ```
 4. Open the URL provided in the terminal (usually http://localhost:5173) in your browser.
 
-## 🌐 Deployment (Vercel)
+## 🌐 Deployment (Vercel + Supabase)
 
-This project is configured to be deployed as a full-stack application on Vercel. 
+This project is configured to be deployed as a full-stack serverless application on Vercel, using a Postgres database (like Supabase) for chat history persistence.
 
+### 1. Database Setup (Supabase)
+1. Create a free project on [Supabase](https://supabase.com/).
+2. Navigate to your Project Settings -> Database.
+3. Copy the **Connection String (URI)** for SQLAlchemy / PostgreSQL.
+   - Example: `postgresql://postgres.[YOUR_ID]:[YOUR_PASSWORD]@aws-0-eu-central-1.pooler.supabase.com:6543/postgres`
+
+### 2. Vercel Deployment
 1. Install the Vercel CLI: `npm i -g vercel`
 2. From the root directory, run:
    ```bash
    vercel --prod
    ```
-3. Ensure you add the `GEMINI_API_KEY` to your Vercel project environment variables in the Vercel Dashboard for the generative AI features to function in production.
+3. In your Vercel Dashboard, go to your project's **Settings > Environment Variables** and add:
+   - `GEMINI_API_KEY`: Your Google Gemini API Key
+   - `DATABASE_URL`: Your Supabase Connection String (from step 1).
+
+*Note: If `DATABASE_URL` is omitted (e.g. for local development), the app will fallback to a local SQLite database file.*

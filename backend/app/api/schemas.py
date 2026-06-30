@@ -45,10 +45,27 @@ class ComplianceResult(BaseModel):
     recommendations: List[str] = []
     metrics: Dict[str, Any] = {}
 
+class ReportData(BaseModel):
+    title: str
+    summary: str
+
 class AnalysisResponse(BaseModel):
     extracted_parameters: ProjectParameters
     compliance: ComplianceResult
     floor_plan_base64: str
     dxf_base64: Optional[str] = None
     architectural_score: float = 0.0
-    report_data: Dict[str, Any]
+    report_data: Optional[ReportData] = None
+
+class ChatRequest(BaseModel):
+    session_id: Optional[str] = None
+    message: str
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatResponse(BaseModel):
+    session_id: str
+    messages: List[ChatMessage]
+    analysis: Optional[AnalysisResponse] = None

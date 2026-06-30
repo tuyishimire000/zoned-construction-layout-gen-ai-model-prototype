@@ -294,10 +294,71 @@ input[type=range]::-webkit-slider-runnable-track {
   color: #e2e8f0;
   font-weight: 500;
   animation: pulse 1.5s infinite;
-  min-height: 2rem;
 }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }
+}
+
+/* Chat UI Styles */
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 600px;
+}
+
+.message-list {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 1rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.message {
+  padding: 1rem 1.25rem;
+  border-radius: 12px;
+  max-width: 85%;
+  line-height: 1.5;
+}
+
+.message.user {
+  align-self: flex-end;
+  background: var(--primary);
+  color: white;
+  border-bottom-right-radius: 2px;
+}
+
+.message.assistant {
+  align-self: flex-start;
+  background: rgba(30, 41, 59, 0.9);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 2px;
+}
+
+.input-area {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.input-area input {
+  flex: 1;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 1rem;
+  font-size: 1rem;
+}
+
+.input-area input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.input-area button {
+  width: auto;
 }
