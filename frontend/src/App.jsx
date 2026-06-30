@@ -171,8 +171,8 @@ function App() {
                 <div style={{marginTop: '1.5rem'}}>
                   <h4 style={{marginBottom: '0.5rem'}}>Zoning Compliance</h4>
                   <div style={{display: 'flex', gap: '0.5rem', flexWrap: 'wrap'}}>
-                    <span className={`status-badge ${result.compliance.status === 'PASS' ? 'pass' : 'fail'}`}>
-                      {result.compliance.status === 'PASS' ? '✓ Passed' : '✕ Issues Found'}
+                    <span className={`status-badge ${result.compliance.compliant ? 'pass' : 'fail'}`}>
+                      {result.compliance.compliant ? '✓ Passed' : '✕ Issues Found'}
                     </span>
                     {result.compliance.metrics?.plot_coverage && (
                       <span className="status-badge" style={{background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)'}}>
@@ -180,7 +180,7 @@ function App() {
                       </span>
                     )}
                   </div>
-                  {result.compliance.status === 'FAIL' && result.compliance.recommendations && result.compliance.recommendations.length > 0 && (
+                  {!result.compliance.compliant && result.compliance.recommendations && result.compliance.recommendations.length > 0 && (
                     <div className="issues-list" style={{ 
                       marginTop: '1rem', 
                       background: 'rgba(239, 68, 68, 0.1)', 
