@@ -8,6 +8,16 @@ import os
 
 from app.data.db import get_db, User
 from app.api.schemas import UserCreate, UserLogin, Token
+from sqlalchemy import text
+
+@router.get("/fix-db")
+def fix_db(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("ALTER TABLE users ADD COLUMN full_name VARCHAR;"))
+        db.commit()
+        return {"status": "success"}
+    except Exception as e:
+        return {"error": str(e)}
 
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "super-secret-fallback-key-change-in-production")
 ALGORITHM = "HS256"
