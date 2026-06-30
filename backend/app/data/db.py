@@ -15,11 +15,7 @@ connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 elif DATABASE_URL.startswith("postgresql"):
-    # Supabase / Postgres usually require SSL
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-    connect_args = {"ssl_context": context}
+    connect_args = {"sslmode": "require"}
 
 engine = create_engine(
     DATABASE_URL, 
