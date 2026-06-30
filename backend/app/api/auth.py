@@ -7,7 +7,7 @@ import jwt
 import os
 
 from app.data.db import get_db, User
-from app.api.schemas import UserCreate, UserLogin, Token, ForgotPasswordRequest, ResetPasswordRequest
+from app.api.schemas import UserCreate, UserLogin, Token, ForgotPasswordRequest, ResetPasswordRequest, VerifyEmailRequest
 from sqlalchemy import text
 import smtplib
 from email.message import EmailMessage
@@ -37,6 +37,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 def fix_db(db: Session = Depends(get_db)):
     try:
         db.execute(text("ALTER TABLE users ADD COLUMN full_name VARCHAR;"))
+    except:
+        pass
+    try:
+        db.execute(text("ALTER TABLE users ADD COLUMN is_verified BOOLEAN DEFAULT FALSE;"))
+        db.execute(text("UPDATE users SET is_verified = TRUE;"))
         db.commit()
         return {"status": "success"}
     except Exception as e:
@@ -76,7 +81,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
     return user
 
-@router.post("/register", response_model=Token)
+@router.post("/register")
 def register(user: UserCreate, db: Session = Depends(get_db)):
     try:
         db_user = db.query(User).filter(User.email == user.email).first()
@@ -84,16 +89,17 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail="Username already registered")
         
         hashed_password = get_password_hash(user.password)
-        new_user = User(email=user.email, full_name=user.full_name, password_hash=hashed_password)
+        new_user = User(email=user.email, full_name=user.full_name, password_hash=hashed_password, is_verified=False)
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
         
-        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        access_token = create_access_token(
-            data={"sub": new_user.email}, expires_delta=access_token_expires
-        )
-        return {"access_token": access_token, "token_type": "bearer"}
+        expire = datetime.utcnow() + timedelta(hours=24)
+        to_encode = {"sub": user.email, "type": "verify", "exp": expire}
+        token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        send_verification_email(user.email, token)
+        
+        return {"message": "Registration successful. Please check your email to verify your account."}
     except HTTPException:
         raise
     except Exception as e:
@@ -110,6 +116,11 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email or password",
                 headers={"WWW-Authenticate": "Bearer"},
+            )
+        if not db_user.is_verified:
+            raise HTTPException(
+                status_code=400,
+                detail="Please verify your email before logging in."
             )
         
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -157,7 +168,8 @@ def google_login(login_data: GoogleLogin, db: Session = Depends(get_db)):
             db_user = User(
                 email=email, 
                 full_name=full_name, 
-                password_hash=random_pw_hash
+                password_hash=random_pw_hash,
+                is_verified=True
             )
             db.add(db_user)
             db.commit()
@@ -213,6 +225,42 @@ def send_reset_email(to_email: str, token: str):
     except Exception as e:
         print(f"Failed to send email: {e}")
 
+def send_verification_email(to_email: str, token: str):
+    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", 587))
+    smtp_user = os.environ.get("SMTP_USER")
+    smtp_pass = os.environ.get("SMTP_PASS")
+    
+    if not smtp_user or not smtp_pass:
+        print(f"Warning: SMTP not configured. Verify link for {to_email}: https://ishimusa-psi.vercel.app/?verify_token={token}")
+        return
+
+    msg = EmailMessage()
+    msg['Subject'] = 'AI Architect - Verify Your Email'
+    msg['From'] = f"AI Architect <{smtp_user}>"
+    msg['To'] = to_email
+
+    verify_link = f"https://ishimusa-psi.vercel.app/?verify_token={token}"
+    msg.set_content(f"Welcome to AI Architect! Click the link below to verify your email address:\n\n{verify_link}\n\nThis link will expire in 24 hours.")
+    
+    msg.add_alternative(f"""
+    <html>
+      <body>
+        <p>Welcome to AI Architect!</p>
+        <p><a href="{verify_link}">Click here to verify your email address</a></p>
+        <p>This link will expire in 24 hours.</p>
+      </body>
+    </html>
+    """, subtype='html')
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+
 @router.post("/forgot-password")
 def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == req.email).first()
@@ -249,3 +297,25 @@ def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Reset token has expired")
     except jwt.PyJWTError:
         raise HTTPException(status_code=400, detail="Invalid reset token")
+
+@router.post("/verify-email")
+def verify_email(req: VerifyEmailRequest, db: Session = Depends(get_db)):
+    try:
+        payload = jwt.decode(req.token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "verify":
+            raise HTTPException(status_code=400, detail="Invalid token type")
+        email = payload.get("sub")
+        if not email:
+            raise HTTPException(status_code=400, detail="Invalid token payload")
+            
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        user.is_verified = True
+        db.commit()
+        return {"message": "Email verified successfully"}
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="Verification token has expired")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=400, detail="Invalid verification token")

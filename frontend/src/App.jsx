@@ -8,19 +8,41 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(null);
   const [isLogin, setIsLogin] = useState(true);
-  const [docView, setDocView] = useState(null); // 'terms', 'privacy', 'forgot-password', 'reset-password'
+  const [docView, setDocView] = useState(null); // 'terms', 'privacy', 'forgot-password', 'reset-password', 'verify-pending', 'verify-processing'
   const [resetToken, setResetToken] = useState(null);
+  const [verifyToken, setVerifyToken] = useState(null);
   const [authSuccess, setAuthSuccess] = useState("");
   
   const [authFullName, setAuthFullName] = useState("");
   
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const token = params.get('reset_token');
-    if (token) {
-      setResetToken(token);
+    const rToken = params.get('reset_token');
+    const vToken = params.get('verify_token');
+    
+    if (rToken) {
+      setResetToken(rToken);
       setDocView('reset-password');
       window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (vToken) {
+      setVerifyToken(vToken);
+      setDocView('verify-processing');
+      window.history.replaceState({}, document.title, window.location.pathname);
+      
+      // Process verification immediately
+      fetch('/api/auth/verify-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: vToken })
+      })
+      .then(res => res.json().then(data => ({ok: res.ok, data})))
+      .then(({ok, data}) => {
+        if (!ok) throw new Error(data.detail || "Error verifying email");
+        setAuthSuccess(data.message);
+      })
+      .catch(err => {
+        setAuthError(err.message);
+      });
     }
   }, []);
   const [authEmail, setAuthEmail] = useState("");
@@ -100,9 +122,17 @@ function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Authentication failed");
       
-      localStorage.setItem('token', data.access_token);
-      setToken(data.access_token);
-      setAuthPassword("");
+      if (isLogin) {
+        localStorage.setItem('token', data.access_token);
+        setToken(data.access_token);
+        setAuthPassword("");
+      } else {
+        // Registration successful, show verify-pending
+        setAuthSuccess(data.message);
+        setDocView('verify-pending');
+        setAuthPassword("");
+        setAuthFullName("");
+      }
     } catch (err) {
       setAuthError(err.message);
     }
@@ -354,6 +384,58 @@ function App() {
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 8H14M9 3L14 8L9 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </button>
           </form>
+        </div>
+      </div>
+    );
+  }
+
+  if (docView === 'verify-pending') {
+    return (
+      <div className="auth-layout">
+        <div className="card" style={{ maxWidth: '400px', width: '100%', margin: '0 auto', textAlign: 'center' }}>
+          <div className="corner-bl"></div><div className="corner-br"></div>
+          <h2 style={{ marginTop: 0, color: 'var(--text-hi)' }}>Check your email</h2>
+          <p className="subhead" style={{ marginBottom: '24px' }}>
+            We've sent a verification link to <strong>{authEmail}</strong>. 
+            Please check your inbox (and spam folder) to activate your account.
+          </p>
+          
+          <button className="btn-primary" onClick={() => { setDocView(null); setIsLogin(true); setAuthError(""); setAuthSuccess(""); }} style={{ width: '100%' }}>
+            Return to Sign in
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (docView === 'verify-processing') {
+    return (
+      <div className="auth-layout">
+        <div className="card" style={{ maxWidth: '400px', width: '100%', margin: '0 auto', textAlign: 'center' }}>
+          <div className="corner-bl"></div><div className="corner-br"></div>
+          <h2 style={{ marginTop: 0, color: 'var(--text-hi)' }}>Email Verification</h2>
+          
+          {!authSuccess && !authError && (
+            <p className="subhead" style={{ marginBottom: '24px' }}>Verifying your email address...</p>
+          )}
+          
+          {authError && (
+            <>
+              <div className="error-box">{authError}</div>
+              <p className="switch-line" style={{ marginTop: '24px' }}>
+                <span style={{ cursor: 'pointer', color: 'var(--cyan)' }} onClick={() => { setDocView(null); setIsLogin(true); setAuthError(""); setAuthSuccess(""); }}>Back to Sign in</span>
+              </p>
+            </>
+          )}
+          
+          {authSuccess && (
+            <>
+              <div className="success-box" style={{ background: 'var(--cyan-dim)', color: 'var(--cyan)', padding: '12px', borderRadius: '4px', marginBottom: '16px', fontSize: '14px' }}>{authSuccess}</div>
+              <button className="btn-primary" onClick={() => { setDocView(null); setIsLogin(true); setAuthError(""); setAuthSuccess(""); }} style={{ width: '100%' }}>
+                Continue to Sign in
+              </button>
+            </>
+          )}
         </div>
       </div>
     );

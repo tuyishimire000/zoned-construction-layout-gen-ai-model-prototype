@@ -26,6 +26,9 @@ class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
 
+class VerifyEmailRequest(BaseModel):
+    token: str
+
 class ProjectDescriptionRequest(BaseModel):
     description: str
     export_format: str = "png"
