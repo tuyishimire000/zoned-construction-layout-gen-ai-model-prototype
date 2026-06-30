@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useGoogleLogin } from '@react-oauth/google';
+import Terms from './pages/Terms';
+import Privacy from './pages/Privacy';
 import './index.css';
 
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(null);
   const [isLogin, setIsLogin] = useState(true);
+  const [docView, setDocView] = useState(null);
   
   const [authFullName, setAuthFullName] = useState("");
   const [authEmail, setAuthEmail] = useState("");
@@ -231,6 +234,9 @@ function App() {
   })() : 0;
   const pwColors = ['#E2766B','#E8A23D','#E8A23D','#6FE3D6'];
 
+  if (docView === 'terms') return <Terms onBack={() => setDocView(null)} />;
+  if (docView === 'privacy') return <Privacy onBack={() => setDocView(null)} />;
+
   if (!user) {
     return (
       <div className="auth-layout">
@@ -310,7 +316,7 @@ function App() {
                   onChange={(e) => setAuthTerms(e.target.checked)}
                   required
                 />
-                <label htmlFor="terms-email">I agree to the <a href="#">Terms of service</a> and <a href="#">Privacy policy</a>.</label>
+                <label htmlFor="terms-email">I agree to the <a href="#" onClick={(e) => { e.preventDefault(); setDocView('terms'); }}>Terms of service</a> and <a href="#" onClick={(e) => { e.preventDefault(); setDocView('privacy'); }}>Privacy policy</a>.</label>
               </div>
             )}
 
