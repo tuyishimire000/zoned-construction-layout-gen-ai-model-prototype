@@ -8,17 +8,13 @@ import ssl
 
 # Fallback to local SQLite if DATABASE_URL is not set
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:////tmp/chat_history.db")
-# SQLAlchemy sometimes has issues with postgres:// vs postgresql://
-# Furthermore, Vercel Serverless doesn't support psycopg2-binary C-extensions well,
-# so we force pg8000 pure-python driver!
-if DATABASE_URL.startswith("postgres://") or DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+pg8000://", 1)
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+pg8000://", 1)
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
-elif "pg8000" in DATABASE_URL:
+elif DATABASE_URL.startswith("postgresql"):
     # Supabase / Postgres usually require SSL
     context = ssl.create_default_context()
     context.check_hostname = False
