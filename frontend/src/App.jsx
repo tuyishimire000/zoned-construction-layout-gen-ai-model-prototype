@@ -199,7 +199,7 @@ function App() {
       <div className="auth-layout">
         <div className="card">
           <div className="corner-bl"></div><div className="corner-br"></div>
-          <div className="doc-tag">CRED. 002 / ACCESS</div>
+
 
           <div className="auth-brandmark">
             <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
