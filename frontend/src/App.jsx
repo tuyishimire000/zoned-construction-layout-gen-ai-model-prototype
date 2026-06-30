@@ -180,6 +180,24 @@ function App() {
                       </span>
                     )}
                   </div>
+                  {result.compliance.status === 'FAIL' && result.compliance.recommendations && result.compliance.recommendations.length > 0 && (
+                    <div className="issues-list" style={{ 
+                      marginTop: '1rem', 
+                      background: 'rgba(239, 68, 68, 0.1)', 
+                      border: '1px solid rgba(239, 68, 68, 0.2)', 
+                      borderRadius: '8px', 
+                      padding: '1rem' 
+                    }}>
+                      <h5 style={{ margin: '0 0 0.5rem 0', color: '#f87171', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ fontSize: '1.2em' }}>⚠️</span> Required Fixes
+                      </h5>
+                      <ul style={{ margin: 0, paddingLeft: '1.5rem', color: '#fca5a5', fontSize: '0.9rem', lineHeight: '1.5' }}>
+                        {result.compliance.recommendations.map((rec, i) => (
+                          <li key={i} style={{ marginBottom: '0.25rem' }}>{rec}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
