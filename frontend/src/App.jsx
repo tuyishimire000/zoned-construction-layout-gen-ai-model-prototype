@@ -566,7 +566,27 @@ function App() {
 
   return (
     <div className="app">
-      <aside className={`sidebar ${isMobileMenuOpen ? 'open' : 'closed'}`}>
+      {/* Mobile-only Header */}
+      <header className="mobile-header">
+        <div className="brandmark">
+          <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+            <rect x="1" y="1" width="24" height="24" rx="2" stroke="#6FE3D6" strokeWidth="1.4"/>
+            <path d="M5 19V11L13 5L21 11V19" stroke="#E8A23D" strokeWidth="1.4" strokeLinejoin="round"/>
+            <path d="M9.5 19V13.5H16.5V19" stroke="#6FE3D6" strokeWidth="1.4"/>
+          </svg>
+          <div className="name">Studio<b>AI Architect</b></div>
+        </div>
+        <button className="mobile-menu-btn" onClick={() => setIsMobileMenuOpen(true)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        </button>
+      </header>
+
+      {/* Overlay to close sidebar on mobile */}
+      {isMobileMenuOpen && (
+        <div className="sidebar-overlay" onClick={() => setIsMobileMenuOpen(false)}></div>
+      )}
+
+      <aside className={`sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
           <div className="brandmark">
             <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
@@ -576,12 +596,8 @@ function App() {
             </svg>
             <div className="name">Studio<b>AI Architect</b></div>
           </div>
-          <button className="mobile-menu-btn" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
-            {isMobileMenuOpen ? (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-            ) : (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
-            )}
+          <button className="mobile-close-btn" onClick={() => setIsMobileMenuOpen(false)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
           </button>
         </div>
 
