@@ -265,8 +265,8 @@ def reset_db():
     Base.metadata.create_all(bind=engine)
     
     db = SessionLocal()
-    user1 = User(username="architect_alice", password_hash=get_password_hash("password123"))
-    user2 = User(username="builder_bob", password_hash=get_password_hash("password123"))
+    user1 = User(email="alice@studio.com", password_hash=get_password_hash("password123"))
+    user2 = User(email="bob@studio.com", password_hash=get_password_hash("password123"))
     db.add(user1)
     db.add(user2)
     db.commit()
