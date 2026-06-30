@@ -1,6 +1,34 @@
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
+class UserCreate(BaseModel):
+    full_name: Optional[str] = None
+    email: str
+    password: str
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+class UserResponse(BaseModel):
+    id: str
+    full_name: Optional[str] = None
+    email: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
 class ProjectDescriptionRequest(BaseModel):
     description: str
     export_format: str = "png"
@@ -45,10 +73,27 @@ class ComplianceResult(BaseModel):
     recommendations: List[str] = []
     metrics: Dict[str, Any] = {}
 
+class ReportData(BaseModel):
+    title: str
+    summary: str
+
 class AnalysisResponse(BaseModel):
     extracted_parameters: ProjectParameters
     compliance: ComplianceResult
     floor_plan_base64: str
     dxf_base64: Optional[str] = None
     architectural_score: float = 0.0
-    report_data: Dict[str, Any]
+    report_data: Optional[ReportData] = None
+
+class ChatRequest(BaseModel):
+    session_id: Optional[str] = None
+    message: str
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatResponse(BaseModel):
+    session_id: str
+    messages: List[ChatMessage]
+    analysis: Optional[AnalysisResponse] = None

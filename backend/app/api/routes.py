@@ -1,16 +1,146 @@
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Response, Depends
+from sqlalchemy.orm import Session
 from app.api.schemas import (
     ProjectDescriptionRequest,
     AnalysisResponse,
     ProjectParameters,
     ComplianceResult,
+    ChatRequest,
+    ChatResponse,
+    ChatMessage as SchemaChatMessage,
+    ReportData,
 )
-from app.nlp.extractor import extract_parameters
+from app.nlp.extractor import extract_parameters, extract_parameters_from_history
 from app.compliance.validator import validate_project
 from app.compliance.graph_validator import validate_and_repair_graph
 from app.visualization.floorplan_generator import generate_floorplan
+from app.data.db import get_db, ChatSession, ChatMessage, User
+from app.api.auth import get_current_user
 
 router = APIRouter()
+
+@router.post("/chat", response_model=ChatResponse)
+def chat_with_architect(request: ChatRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    session_id = request.session_id
+    try:
+        # 1. Load or create session
+        if session_id:
+            chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+            if not chat_session or chat_session.user_id != current_user.id:
+                raise HTTPException(status_code=404, detail="Session not found")
+        else:
+            chat_session = ChatSession(user_id=current_user.id)
+            db.add(chat_session)
+            db.commit()
+            db.refresh(chat_session)
+            session_id = chat_session.id
+            
+        # 2. Save user message
+        user_msg = ChatMessage(session_id=session_id, role="user", content=request.message)
+        db.add(user_msg)
+        db.commit()
+        
+        # 3. Retrieve full history
+        history = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp).all()
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        raise HTTPException(status_code=500, detail=f"Database or route error: {str(e)}\n{tb}")
+    messages_list = [{"role": msg.role, "content": msg.content} for msg in history]
+    
+    # 4. Generate parameters from history
+    try:
+        params_dict = extract_parameters_from_history(messages_list)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in NLP extraction: {str(e)}")
+        
+    # 5. Generate floor plan
+    try:
+        params_dict, ai_fixes = validate_and_repair_graph(params_dict)
+        compliance_dict = validate_project(params_dict)
+        if ai_fixes:
+            compliance_dict["recommendations"].extend(ai_fixes)
+        img_data, dxf_data, score = generate_floorplan(params_dict, compliance_dict, 'png')
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        raise HTTPException(status_code=500, detail=f"Error in layout generation: {str(e)}\n\n{tb}")
+        
+    # 6. Save AI response (a summary of actions)
+    # The AI does not generate a text response in extractor right now, it just generates JSON.
+    # We can create a simple summary string as the AI's response message.
+    ai_content = f"I've updated the layout! It's a {params_dict.get('usage', 'residential')} building with {params_dict.get('floors', 1)} floors on a {params_dict.get('plot_size')} sqm plot."
+    ai_msg = ChatMessage(session_id=session_id, role="assistant", content=ai_content)
+    db.add(ai_msg)
+    
+    # Save the project state
+    chat_session.current_state = params_dict
+    db.commit()
+    
+    # Append the new AI message to our history for the response
+    messages_list.append({"role": "assistant", "content": ai_content})
+    schema_messages = [SchemaChatMessage(**m) for m in messages_list]
+    
+    report_data = ReportData(
+        title="Smart Building Compliance Report",
+        summary=ai_content,
+    )
+    
+    analysis = AnalysisResponse(
+        extracted_parameters=ProjectParameters(**params_dict),
+        compliance=ComplianceResult(**compliance_dict),
+        floor_plan_base64=img_data,
+        dxf_base64=dxf_data,
+        architectural_score=score,
+        report_data=report_data,
+    )
+    
+    return ChatResponse(
+        session_id=session_id,
+        messages=schema_messages,
+        analysis=analysis
+    )
+
+@router.get("/sessions")
+def get_user_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    sessions = db.query(ChatSession).filter(ChatSession.user_id == current_user.id).order_by(ChatSession.updated_at.desc()).all()
+    return [{"id": s.id, "created_at": s.created_at, "updated_at": s.updated_at} for s in sessions]
+
+@router.get("/session/{session_id}", response_model=ChatResponse)
+def get_session(session_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not chat_session or chat_session.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    history = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp).all()
+    
+    analysis_resp = None
+    if chat_session.current_state:
+        # Re-run validation on the saved state to populate the analysis response
+        params_dict = chat_session.current_state
+        compliance_dict = validate_project(params_dict)
+        score = 0.0
+        
+        # generate a new floorplan if we have graph
+        floor_plan_b64 = ""
+        dxf_b64 = None
+        if params_dict.get("graph"):
+            floor_plan_b64, dxf_b64, score = generate_floorplan(params_dict)
+            
+        analysis_resp = AnalysisResponse(
+            extracted_parameters=ProjectParameters(**params_dict),
+            compliance=ComplianceResult(**compliance_dict),
+            floor_plan_base64=floor_plan_b64,
+            dxf_base64=dxf_b64,
+            architectural_score=score,
+            report_data=None
+        )
+        
+    return ChatResponse(
+        session_id=session_id,
+        messages=[SchemaChatMessage(role=msg.role, content=msg.content) for msg in history],
+        analysis=analysis_resp
+    )
 
 
 @router.get("/site-plan/sample.png")
@@ -126,3 +256,20 @@ def render_project(params: ProjectParameters):
         architectural_score=score,
         report_data=report_data,
     )
+
+@router.get("/dev/reset-db")
+def reset_db():
+    from app.data.db import Base, engine, User, SessionLocal
+    from app.api.auth import get_password_hash
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    
+    db = SessionLocal()
+    user1 = User(email="alice@studio.com", full_name="Alice Mwangi", password_hash=get_password_hash("password123"))
+    user2 = User(email="bob@studio.com", full_name="Builder Bob", password_hash=get_password_hash("password123"))
+    db.add(user1)
+    db.add(user2)
+    db.commit()
+    db.close()
+    
+    return {"status": "Database tables dropped, recreated, and seeded with users"}
