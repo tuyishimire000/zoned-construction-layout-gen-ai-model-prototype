@@ -303,7 +303,7 @@ function App() {
           {authSuccess && <div className="success-box" style={{ background: 'var(--cyan-dim)', color: 'var(--cyan)', padding: '12px', borderRadius: '4px', marginBottom: '16px', fontSize: '14px' }}>{authSuccess}</div>}
 
           <form onSubmit={handleForgotPassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div className="input-group">
+            <div className="field" style={{ textAlign: 'left' }}>
               <label>Email Address</label>
               <input 
                 type="email" 
@@ -315,11 +315,12 @@ function App() {
             </div>
             <button className="btn-primary" type="submit">
               Send Reset Link
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 8H14M9 3L14 8L9 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </button>
           </form>
           
           <p className="switch-line" style={{ marginTop: '24px' }}>
-            Remembered it? <button className="btn-link" onClick={() => { setDocView(null); setIsLogin(true); setAuthError(""); setAuthSuccess(""); }}>Back to Sign in</button>
+            Remembered it? <span style={{ cursor: 'pointer', color: 'var(--cyan)' }} onClick={() => { setDocView(null); setIsLogin(true); setAuthError(""); setAuthSuccess(""); }}>Back to Sign in</span>
           </p>
         </div>
       </div>
@@ -338,7 +339,7 @@ function App() {
           {authSuccess && <div className="success-box" style={{ background: 'var(--cyan-dim)', color: 'var(--cyan)', padding: '12px', borderRadius: '4px', marginBottom: '16px', fontSize: '14px' }}>{authSuccess}</div>}
 
           <form onSubmit={handleResetPassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div className="input-group">
+            <div className="field" style={{ textAlign: 'left' }}>
               <label>New Password</label>
               <input 
                 type="password" 
@@ -350,6 +351,7 @@ function App() {
             </div>
             <button className="btn-primary" type="submit">
               Reset Password
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 8H14M9 3L14 8L9 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </button>
           </form>
         </div>
@@ -425,17 +427,12 @@ function App() {
                   </span>
                 </div>
               )}
-              {isLogin && (
-                <div style={{ textAlign: 'right', marginTop: '4px' }}>
-                  <a href="#" onClick={(e) => { e.preventDefault(); setDocView('forgot-password'); setAuthError(""); setAuthSuccess(""); }} style={{ color: 'var(--cyan)', fontSize: '13px', textDecoration: 'none' }}>Forgot password?</a>
-                </div>
-              )}
             </div>
             
             {isLogin ? (
               <div className="row-between">
                 <label><input type="checkbox" /> Remember me</label>
-                <span className="switch-line"><span style={{fontSize:'12.5px'}}>Forgot password?</span></span>
+                <span className="switch-line"><span style={{fontSize:'12.5px', cursor: 'pointer'}} onClick={() => { setDocView('forgot-password'); setAuthError(""); setAuthSuccess(""); }}>Forgot password?</span></span>
               </div>
             ) : (
               <div className="terms-row">
