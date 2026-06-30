@@ -97,3 +97,5 @@ class ChatResponse(BaseModel):
     session_id: str
     messages: List[ChatMessage]
     analysis: Optional[AnalysisResponse] = None
+    is_owner: bool = True
+    is_public: bool = False
