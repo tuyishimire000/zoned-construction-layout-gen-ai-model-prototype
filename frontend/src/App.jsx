@@ -196,34 +196,61 @@ function App() {
 
   if (!user) {
     return (
-      <div className="auth-container">
-        <div className="auth-card">
+      <div className="auth-layout">
+        <div className="card">
           <div className="corner-bl"></div><div className="corner-br"></div>
-          <div className="auth-header">
-            <h1>Studio AI Architect</h1>
-            <p>{isLogin ? 'Sign in to access your projects' : 'Register to start designing'}</p>
+          <div className="doc-tag">CRED. 002 / ACCESS</div>
+
+          <div className="auth-brandmark">
+            <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+              <rect x="1" y="1" width="24" height="24" rx="2" stroke="#6FE3D6" strokeWidth="1.4"/>
+              <path d="M5 19V11L13 5L21 11V19" stroke="#E8A23D" strokeWidth="1.4" strokeLinejoin="round"/>
+              <path d="M9.5 19V13.5H16.5V19" stroke="#6FE3D6" strokeWidth="1.4"/>
+            </svg>
+            <span className="name">AI Architect</span>
           </div>
-          <form onSubmit={handleAuth} className="auth-form">
-            <input 
-              type="text" 
-              placeholder="Username" 
-              value={authUsername}
-              onChange={(e) => setAuthUsername(e.target.value)}
-              required
-            />
-            <input 
-              type="password" 
-              placeholder="Password" 
-              value={authPassword}
-              onChange={(e) => setAuthPassword(e.target.value)}
-              required
-            />
+          <p className="subhead">
+            {isLogin ? 'Welcome back — sign in to continue your build.' : 'Welcome — register to start your build.'}
+          </p>
+
+          <form onSubmit={handleAuth}>
+            <div className="field">
+              <label>Username</label>
+              <input 
+                type="text" 
+                placeholder="architect_alice" 
+                value={authUsername}
+                onChange={(e) => setAuthUsername(e.target.value)}
+                required
+              />
+            </div>
+            <div className="field">
+              <label>Password</label>
+              <input 
+                type="password" 
+                placeholder="••••••••" 
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                required
+              />
+            </div>
+            
+            {isLogin && (
+              <div className="row-between">
+                <label><input type="checkbox" /> Remember me</label>
+                <span className="switch-line"><span style={{fontSize:'12.5px'}}>Forgot password?</span></span>
+              </div>
+            )}
+
             {authError && <div className="auth-error">{authError}</div>}
-            <button type="submit" className="btn">
-              {isLogin ? 'Sign In' : 'Sign Up'}
+            
+            <button type="submit" className="btn-primary">
+              {isLogin ? 'Sign in' : 'Sign up'}
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 8H14M9 3L14 8L9 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </button>
           </form>
-          <p className="auth-switch">
+
+          <p className="switch-line">
             {isLogin ? "Don't have an account? " : "Already have an account? "}
             <span onClick={() => setIsLogin(!isLogin)}>
               {isLogin ? 'Sign up' : 'Sign in'}
