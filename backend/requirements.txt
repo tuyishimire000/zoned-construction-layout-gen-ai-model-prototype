@@ -35,7 +35,7 @@ packaging==26.2
 pillow==12.2.0
 pluggy==1.6.0
 preshed==3.0.13
-psycopg2-binary==2.9.12
+pg8000==1.30.5
 pyasn1==0.6.3
 pyasn1_modules==0.4.2
 pycparser==3.0

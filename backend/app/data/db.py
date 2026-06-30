@@ -7,8 +7,11 @@ import uuid
 # Fallback to local SQLite if DATABASE_URL is not set
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./chat_history.db")
 # SQLAlchemy sometimes has issues with postgres:// vs postgresql://
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+# Furthermore, Vercel Serverless doesn't support psycopg2-binary C-extensions well,
+# so we force pg8000 pure-python driver!
+if DATABASE_URL.startswith("postgres://") or DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+pg8000://", 1)
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+pg8000://", 1)
 
 engine = create_engine(
     DATABASE_URL, 
