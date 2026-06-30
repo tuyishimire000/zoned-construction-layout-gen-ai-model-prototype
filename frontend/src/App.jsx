@@ -8,9 +8,21 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(null);
   const [isLogin, setIsLogin] = useState(true);
-  const [docView, setDocView] = useState(null);
+  const [docView, setDocView] = useState(null); // 'terms', 'privacy', 'forgot-password', 'reset-password'
+  const [resetToken, setResetToken] = useState(null);
+  const [authSuccess, setAuthSuccess] = useState("");
   
   const [authFullName, setAuthFullName] = useState("");
+  
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('reset_token');
+    if (token) {
+      setResetToken(token);
+      setDocView('reset-password');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authTerms, setAuthTerms] = useState(false);
@@ -116,6 +128,48 @@ function App() {
     },
     onError: () => setAuthError("Google authentication failed"),
   });
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthSuccess("");
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: authEmail })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Error sending reset link");
+      setAuthSuccess(data.message);
+    } catch (err) {
+      setAuthError(err.message);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthSuccess("");
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: resetToken, new_password: authPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Error resetting password");
+      setAuthSuccess(data.message);
+      setTimeout(() => {
+        setDocView(null);
+        setIsLogin(true);
+        setAuthPassword("");
+        setAuthSuccess("");
+      }, 3000);
+    } catch (err) {
+      setAuthError(err.message);
+    }
+  };
 
   const logout = () => {
     localStorage.removeItem('token');
@@ -237,6 +291,72 @@ function App() {
   if (docView === 'terms') return <Terms onBack={() => setDocView(null)} />;
   if (docView === 'privacy') return <Privacy onBack={() => setDocView(null)} />;
 
+  if (docView === 'forgot-password') {
+    return (
+      <div className="auth-layout">
+        <div className="card" style={{ maxWidth: '400px', width: '100%', margin: '0 auto', textAlign: 'center' }}>
+          <div className="corner-bl"></div><div className="corner-br"></div>
+          <h2 style={{ marginTop: 0, color: 'var(--text-hi)' }}>Reset Password</h2>
+          <p className="subhead" style={{ marginBottom: '24px' }}>Enter your email to receive a reset link</p>
+          
+          {authError && <div className="error-box">{authError}</div>}
+          {authSuccess && <div className="success-box" style={{ background: 'var(--cyan-dim)', color: 'var(--cyan)', padding: '12px', borderRadius: '4px', marginBottom: '16px', fontSize: '14px' }}>{authSuccess}</div>}
+
+          <form onSubmit={handleForgotPassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="input-group">
+              <label>Email Address</label>
+              <input 
+                type="email" 
+                placeholder="architect@future.com"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                required
+              />
+            </div>
+            <button className="btn-primary" type="submit">
+              Send Reset Link
+            </button>
+          </form>
+          
+          <p className="switch-line" style={{ marginTop: '24px' }}>
+            Remembered it? <button className="btn-link" onClick={() => { setDocView(null); setIsLogin(true); setAuthError(""); setAuthSuccess(""); }}>Back to Sign in</button>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (docView === 'reset-password') {
+    return (
+      <div className="auth-layout">
+        <div className="card" style={{ maxWidth: '400px', width: '100%', margin: '0 auto', textAlign: 'center' }}>
+          <div className="corner-bl"></div><div className="corner-br"></div>
+          <h2 style={{ marginTop: 0, color: 'var(--text-hi)' }}>Set New Password</h2>
+          <p className="subhead" style={{ marginBottom: '24px' }}>Please enter your new password</p>
+          
+          {authError && <div className="error-box">{authError}</div>}
+          {authSuccess && <div className="success-box" style={{ background: 'var(--cyan-dim)', color: 'var(--cyan)', padding: '12px', borderRadius: '4px', marginBottom: '16px', fontSize: '14px' }}>{authSuccess}</div>}
+
+          <form onSubmit={handleResetPassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="input-group">
+              <label>New Password</label>
+              <input 
+                type="password" 
+                placeholder="••••••••"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                required
+              />
+            </div>
+            <button className="btn-primary" type="submit">
+              Reset Password
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div className="auth-layout">
@@ -290,15 +410,25 @@ function App() {
                 required
               />
               {!isLogin && (
-                <>
-                  <div className="strength">
-                    <i style={{background: passwordScore > 0 ? pwColors[passwordScore-1] : 'var(--line)'}}></i>
-                    <i style={{background: passwordScore > 1 ? pwColors[passwordScore-1] : 'var(--line)'}}></i>
-                    <i style={{background: passwordScore > 2 ? pwColors[passwordScore-1] : 'var(--line)'}}></i>
-                    <i style={{background: passwordScore > 3 ? pwColors[passwordScore-1] : 'var(--line)'}}></i>
+                <div className="pw-strength">
+                  <div className="pw-bars">
+                    {[1,2,3,4].map(i => (
+                      <div key={i} className="pw-bar" style={{ background: i <= passwordScore ? pwColors[passwordScore-1] : 'var(--line)' }}></div>
+                    ))}
                   </div>
-                  <div className="hint">Use 8+ characters with a number and a symbol.</div>
-                </>
+                  <span style={{ color: passwordScore > 0 ? pwColors[passwordScore-1] : 'var(--text-faint)' }}>
+                    {passwordScore === 0 && "Enter password"}
+                    {passwordScore === 1 && "Weak"}
+                    {passwordScore === 2 && "Fair"}
+                    {passwordScore === 3 && "Good"}
+                    {passwordScore === 4 && "Strong"}
+                  </span>
+                </div>
+              )}
+              {isLogin && (
+                <div style={{ textAlign: 'right', marginTop: '4px' }}>
+                  <a href="#" onClick={(e) => { e.preventDefault(); setDocView('forgot-password'); setAuthError(""); setAuthSuccess(""); }} style={{ color: 'var(--cyan)', fontSize: '13px', textDecoration: 'none' }}>Forgot password?</a>
+                </div>
               )}
             </div>
             

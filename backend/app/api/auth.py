@@ -7,8 +7,10 @@ import jwt
 import os
 
 from app.data.db import get_db, User
-from app.api.schemas import UserCreate, UserLogin, Token
+from app.api.schemas import UserCreate, UserLogin, Token, ForgotPasswordRequest, ResetPasswordRequest
 from sqlalchemy import text
+import smtplib
+from email.message import EmailMessage
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 from pydantic import BaseModel
@@ -174,3 +176,76 @@ def google_login(login_data: GoogleLogin, db: Session = Depends(get_db)):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+def send_reset_email(to_email: str, token: str):
+    smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", 587))
+    smtp_user = os.environ.get("SMTP_USER")
+    smtp_pass = os.environ.get("SMTP_PASS")
+    
+    if not smtp_user or not smtp_pass:
+        print(f"Warning: SMTP not configured. Reset link for {to_email}: https://ishimusa-psi.vercel.app/?reset_token={token}")
+        return
+
+    msg = EmailMessage()
+    msg['Subject'] = 'AI Architect - Password Reset'
+    msg['From'] = f"AI Architect <{smtp_user}>"
+    msg['To'] = to_email
+
+    reset_link = f"https://ishimusa-psi.vercel.app/?reset_token={token}"
+    msg.set_content(f"You requested a password reset. Click the link below to reset your password:\n\n{reset_link}\n\nThis link will expire in 15 minutes.")
+    
+    msg.add_alternative(f"""
+    <html>
+      <body>
+        <p>You requested a password reset for AI Architect.</p>
+        <p><a href="{reset_link}">Click here to reset your password</a></p>
+        <p>This link will expire in 15 minutes.</p>
+      </body>
+    </html>
+    """, subtype='html')
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+
+@router.post("/forgot-password")
+def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == req.email).first()
+    if not user:
+        # We still return success to prevent email enumeration
+        return {"message": "If an account exists, a password reset link has been sent."}
+    
+    # Create reset token (valid for 15 mins)
+    expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode = {"sub": user.email, "type": "reset", "exp": expire}
+    token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    
+    send_reset_email(user.email, token)
+    return {"message": "If an account exists, a password reset link has been sent."}
+
+@router.post("/reset-password")
+def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
+    try:
+        payload = jwt.decode(req.token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "reset":
+            raise HTTPException(status_code=400, detail="Invalid token type")
+        email = payload.get("sub")
+        if not email:
+            raise HTTPException(status_code=400, detail="Invalid token payload")
+            
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        user.password_hash = get_password_hash(req.new_password)
+        db.commit()
+        return {"message": "Password reset successfully"}
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="Reset token has expired")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=400, detail="Invalid reset token")
