@@ -39,11 +39,15 @@ def validate_project(params: dict) -> dict:
         recommendations.append(f"Reduce building footprint to be under {allowed_area} sqm.")
         
     STANDARD_ROOM_SIZES = {
-        "bedrooms": 15,
-        "bathrooms": 5,
-        "kitchens": 10,
-        "living_rooms": 20,
-        "offices": 12
+        "bedrooms": 24,
+        "bathrooms": 8,
+        "kitchens": 18,
+        "living_rooms": 35,
+        "offices": 16,
+        "outside_kitchens": 12,
+        "outside_bathrooms": 6,
+        "maid_rooms": 12,
+        "corridors": 15
     }
     
     rooms = params.get("rooms", {})

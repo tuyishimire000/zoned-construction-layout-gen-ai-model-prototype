@@ -10,20 +10,20 @@ from .model import (
 )
 
 STANDARD_ROOM_SIZES = {
-    "bedrooms": 15, "bathrooms": 5, "kitchens": 10,
-    "living_rooms": 20, "offices": 12, "outside_kitchens": 8,
-    "outside_bathrooms": 4, "maid_rooms": 9, "corridors": 10
+    "bedrooms": 24, "bathrooms": 8, "kitchens": 18,
+    "living_rooms": 35, "offices": 16, "outside_kitchens": 12,
+    "outside_bathrooms": 6, "maid_rooms": 12, "corridors": 15
 }
 
 MIN_WIDTHS = {
-    "bedrooms": 3.0, "living_rooms": 4.0, "bathrooms": 1.5,
-    "kitchens": 3.0, "offices": 2.5, "outside_kitchens": 2.0,
-    "outside_bathrooms": 1.5, "maid_rooms": 2.5, "corridors": 1.5
+    "bedrooms": 4.0, "living_rooms": 5.0, "bathrooms": 2.0,
+    "kitchens": 3.5, "offices": 3.0, "outside_kitchens": 3.0,
+    "outside_bathrooms": 2.0, "maid_rooms": 3.0, "corridors": 1.5
 }
 
 MIN_DEPTHS = {
-    "bedrooms": 3.0, "living_rooms": 4.0, "bathrooms": 2.0,
-    "kitchens": 3.0, "offices": 3.0, "outside_kitchens": 2.5,
+    "bedrooms": 4.0, "living_rooms": 5.0, "bathrooms": 2.5,
+    "kitchens": 4.0, "offices": 3.5, "outside_kitchens": 3.0,
     "outside_bathrooms": 2.0, "maid_rooms": 3.0, "corridors": 2.0
 }
 
