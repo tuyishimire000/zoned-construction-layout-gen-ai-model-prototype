@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
 class UserCreate(BaseModel):
+    full_name: Optional[str] = None
     email: str
     password: str
 
@@ -11,6 +12,7 @@ class UserLogin(BaseModel):
 
 class UserResponse(BaseModel):
     id: str
+    full_name: Optional[str] = None
     email: str
 
 class Token(BaseModel):

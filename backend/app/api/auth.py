@@ -59,7 +59,7 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Username already registered")
     
     hashed_password = get_password_hash(user.password)
-    new_user = User(email=user.email, password_hash=hashed_password)
+    new_user = User(email=user.email, full_name=user.full_name, password_hash=hashed_password)
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -88,4 +88,4 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
 
 @router.get("/me")
 def read_users_me(current_user: User = Depends(get_current_user)):
-    return {"id": current_user.id, "email": current_user.email}
+    return {"id": current_user.id, "email": current_user.email, "full_name": current_user.full_name}

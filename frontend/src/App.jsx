@@ -6,8 +6,10 @@ function App() {
   const [user, setUser] = useState(null);
   const [isLogin, setIsLogin] = useState(true);
   
+  const [authFullName, setAuthFullName] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [authTerms, setAuthTerms] = useState(false);
   const [authError, setAuthError] = useState("");
   
   const [sessionId, setSessionId] = useState(null);
@@ -68,13 +70,16 @@ function App() {
 
   const handleAuth = async (e) => {
     e.preventDefault();
-    setAuthError("");
-    const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
-    try {
+    setAuthError("");    try {
+      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+      const payload = isLogin 
+        ? { email: authEmail, password: authPassword }
+        : { email: authEmail, password: authPassword, full_name: authFullName };
+      
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: authEmail, password: authPassword })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Authentication failed");
@@ -194,6 +199,16 @@ function App() {
     }
   };
 
+  const passwordScore = authPassword ? (() => {
+    let score = 0;
+    if(authPassword.length >= 8) score++;
+    if(/[0-9]/.test(authPassword)) score++;
+    if(/[^A-Za-z0-9]/.test(authPassword)) score++;
+    if(/[A-Z]/.test(authPassword) && /[a-z]/.test(authPassword)) score++;
+    return score;
+  })() : 0;
+  const pwColors = ['#E2766B','#E8A23D','#E8A23D','#6FE3D6'];
+
   if (!user) {
     return (
       <div className="auth-layout">
@@ -210,10 +225,23 @@ function App() {
             <span className="name">AI Architect</span>
           </div>
           <p className="subhead">
-            {isLogin ? 'Welcome back — sign in to continue your build.' : 'Welcome — register to start your build.'}
+            {isLogin ? 'Welcome back — sign in to continue your build.' : 'Create an account to start your first build.'}
           </p>
 
           <form onSubmit={handleAuth}>
+            {!isLogin && (
+              <div className="field">
+                <label>Full name</label>
+                <input 
+                  type="text" 
+                  placeholder="Alice Mwangi" 
+                  value={authFullName}
+                  onChange={(e) => setAuthFullName(e.target.value)}
+                  required
+                />
+              </div>
+            )}
+            
             <div className="field">
               <label>Email</label>
               <input 
@@ -228,17 +256,39 @@ function App() {
               <label>Password</label>
               <input 
                 type="password" 
-                placeholder="••••••••" 
+                placeholder={isLogin ? "••••••••" : "At least 8 characters"}
                 value={authPassword}
                 onChange={(e) => setAuthPassword(e.target.value)}
                 required
               />
+              {!isLogin && (
+                <>
+                  <div className="strength">
+                    <i style={{background: passwordScore > 0 ? pwColors[passwordScore-1] : 'var(--line)'}}></i>
+                    <i style={{background: passwordScore > 1 ? pwColors[passwordScore-1] : 'var(--line)'}}></i>
+                    <i style={{background: passwordScore > 2 ? pwColors[passwordScore-1] : 'var(--line)'}}></i>
+                    <i style={{background: passwordScore > 3 ? pwColors[passwordScore-1] : 'var(--line)'}}></i>
+                  </div>
+                  <div className="hint">Use 8+ characters with a number and a symbol.</div>
+                </>
+              )}
             </div>
             
-            {isLogin && (
+            {isLogin ? (
               <div className="row-between">
                 <label><input type="checkbox" /> Remember me</label>
                 <span className="switch-line"><span style={{fontSize:'12.5px'}}>Forgot password?</span></span>
+              </div>
+            ) : (
+              <div className="terms-row">
+                <input 
+                  type="checkbox" 
+                  id="terms-email" 
+                  checked={authTerms}
+                  onChange={(e) => setAuthTerms(e.target.checked)}
+                  required
+                />
+                <label htmlFor="terms-email">I agree to the <a href="#">Terms of service</a> and <a href="#">Privacy policy</a>.</label>
               </div>
             )}
 
@@ -260,7 +310,7 @@ function App() {
                   <path fill="#FBBC05" d="M3.92 10.68A5.4 5.4 0 0 1 3.64 9c0-.58.1-1.15.28-1.68V4.99H.9A8.997 8.997 0 0 0 0 9c0 1.45.35 2.83.9 4.01l3.02-2.33z"/>
                   <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58A8.59 8.59 0 0 0 9 0 8.997 8.997 0 0 0 .9 4.99l3.02 2.33C4.64 5.18 6.64 3.58 9 3.58z"/>
                 </svg>
-                Sign in with Google
+                Sign {isLogin ? 'in' : 'up'} with Google
               </button>
             </div>
           )}
@@ -291,8 +341,7 @@ function App() {
         </div>
 
         <div className="user-chip">
-
-          <span>{user.email}<span className="role">Signed in</span></span>
+          <span>{user.full_name || user.email}<span className="role">Signed in</span></span>
         </div>
 
         <button className="btn-new" onClick={startNewSession}>
