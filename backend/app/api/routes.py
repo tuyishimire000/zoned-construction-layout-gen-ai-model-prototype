@@ -259,7 +259,17 @@ def render_project(params: ProjectParameters):
 
 @router.get("/dev/reset-db")
 def reset_db():
-    from app.data.db import Base, engine
+    from app.data.db import Base, engine, User, SessionLocal
+    from app.api.auth import get_password_hash
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
-    return {"status": "Database tables dropped and recreated with new schema"}
+    
+    db = SessionLocal()
+    user1 = User(username="architect_alice", password_hash=get_password_hash("password123"))
+    user2 = User(username="builder_bob", password_hash=get_password_hash("password123"))
+    db.add(user1)
+    db.add(user2)
+    db.commit()
+    db.close()
+    
+    return {"status": "Database tables dropped, recreated, and seeded with users"}
