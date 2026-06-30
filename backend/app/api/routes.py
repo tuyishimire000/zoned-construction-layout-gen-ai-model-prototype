@@ -14,21 +14,22 @@ from app.nlp.extractor import extract_parameters, extract_parameters_from_histor
 from app.compliance.validator import validate_project
 from app.compliance.graph_validator import validate_and_repair_graph
 from app.visualization.floorplan_generator import generate_floorplan
-from app.data.db import get_db, ChatSession, ChatMessage
+from app.data.db import get_db, ChatSession, ChatMessage, User
+from app.api.auth import get_current_user
 
 router = APIRouter()
 
 @router.post("/chat", response_model=ChatResponse)
-def chat_with_architect(request: ChatRequest, db: Session = Depends(get_db)):
+def chat_with_architect(request: ChatRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     session_id = request.session_id
     try:
         # 1. Load or create session
         if session_id:
             chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
-            if not chat_session:
+            if not chat_session or chat_session.user_id != current_user.id:
                 raise HTTPException(status_code=404, detail="Session not found")
         else:
-            chat_session = ChatSession()
+            chat_session = ChatSession(user_id=current_user.id)
             db.add(chat_session)
             db.commit()
             db.refresh(chat_session)
@@ -98,6 +99,47 @@ def chat_with_architect(request: ChatRequest, db: Session = Depends(get_db)):
         session_id=session_id,
         messages=schema_messages,
         analysis=analysis
+    )
+
+@router.get("/sessions")
+def get_user_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    sessions = db.query(ChatSession).filter(ChatSession.user_id == current_user.id).order_by(ChatSession.updated_at.desc()).all()
+    return [{"id": s.id, "created_at": s.created_at, "updated_at": s.updated_at} for s in sessions]
+
+@router.get("/session/{session_id}", response_model=ChatResponse)
+def get_session(session_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not chat_session or chat_session.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    history = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp).all()
+    
+    analysis_resp = None
+    if chat_session.current_state:
+        # Re-run validation on the saved state to populate the analysis response
+        params_dict = chat_session.current_state
+        compliance_dict = validate_project(params_dict)
+        score = 0.0
+        
+        # generate a new floorplan if we have graph
+        floor_plan_b64 = ""
+        dxf_b64 = None
+        if params_dict.get("graph"):
+            floor_plan_b64, dxf_b64, score = generate_floorplan(params_dict)
+            
+        analysis_resp = AnalysisResponse(
+            extracted_parameters=ProjectParameters(**params_dict),
+            compliance=ComplianceResult(**compliance_dict),
+            floor_plan_base64=floor_plan_b64,
+            dxf_base64=dxf_b64,
+            architectural_score=score,
+            report_data=None
+        )
+        
+    return ChatResponse(
+        session_id=session_id,
+        messages=[SchemaChatMessage(role=msg.role, content=msg.content) for msg in history],
+        analysis=analysis_resp
     )
 
 
@@ -214,3 +256,10 @@ def render_project(params: ProjectParameters):
         architectural_score=score,
         report_data=report_data,
     )
+
+@router.get("/dev/reset-db")
+def reset_db():
+    from app.data.db import Base, engine
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    return {"status": "Database tables dropped and recreated with new schema"}

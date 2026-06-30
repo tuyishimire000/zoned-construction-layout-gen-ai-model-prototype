@@ -6,9 +6,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import router
+from app.api.routes import router as api_router
+from app.api.auth import router as auth_router
+from app.data.db import Base, engine
 
-app = FastAPI(title="Smart Building Compliance API")
+# Create tables if they don't exist
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    print(f"Warning: Could not create tables on startup. Error: {e}")
+
+app = FastAPI(title="Zoned Construction Layout AI")
 
 # Allow CORS for local React development
 app.add_middleware(
@@ -19,7 +27,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(router, prefix="/api")
+app.include_router(api_router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
 
 @app.get("/")
 def read_root():
