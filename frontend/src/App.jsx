@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useGoogleLogin } from '@react-oauth/google';
 import './index.css';
 
 function App() {
@@ -91,6 +92,27 @@ function App() {
       setAuthError(err.message);
     }
   };
+
+  const loginWithGoogle = useGoogleLogin({
+    onSuccess: async (tokenResponse) => {
+      setAuthError("");
+      try {
+        const res = await fetch('/api/auth/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential: tokenResponse.access_token })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Google authentication failed");
+        
+        localStorage.setItem('token', data.access_token);
+        setToken(data.access_token);
+      } catch (err) {
+        setAuthError(err.message);
+      }
+    },
+    onError: () => setAuthError("Google authentication failed"),
+  });
 
   const logout = () => {
     localStorage.removeItem('token');
@@ -300,20 +322,18 @@ function App() {
             </button>
           </form>
 
-          {isLogin && (
-            <div id="google-block">
-              <div className="divider"><span>or continue with</span></div>
-              <button className="btn-google">
-                <svg width="17" height="17" viewBox="0 0 18 18">
-                  <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/>
-                  <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.36 0-4.36-1.6-5.08-3.74H.9v2.33A8.997 8.997 0 0 0 9 18z"/>
-                  <path fill="#FBBC05" d="M3.92 10.68A5.4 5.4 0 0 1 3.64 9c0-.58.1-1.15.28-1.68V4.99H.9A8.997 8.997 0 0 0 0 9c0 1.45.35 2.83.9 4.01l3.02-2.33z"/>
-                  <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58A8.59 8.59 0 0 0 9 0 8.997 8.997 0 0 0 .9 4.99l3.02 2.33C4.64 5.18 6.64 3.58 9 3.58z"/>
-                </svg>
-                Sign {isLogin ? 'in' : 'up'} with Google
-              </button>
-            </div>
-          )}
+          <div id="google-block">
+            <div className="divider"><span>or continue with</span></div>
+            <button className="btn-google" onClick={() => loginWithGoogle()} type="button">
+              <svg width="17" height="17" viewBox="0 0 18 18">
+                <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/>
+                <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.36 0-4.36-1.6-5.08-3.74H.9v2.33A8.997 8.997 0 0 0 9 18z"/>
+                <path fill="#FBBC05" d="M3.92 10.68A5.4 5.4 0 0 1 3.64 9c0-.58.1-1.15.28-1.68V4.99H.9A8.997 8.997 0 0 0 0 9c0 1.45.35 2.83.9 4.01l3.02-2.33z"/>
+                <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58A8.59 8.59 0 0 0 9 0 8.997 8.997 0 0 0 .9 4.99l3.02 2.33C4.64 5.18 6.64 3.58 9 3.58z"/>
+              </svg>
+              Sign {isLogin ? 'in' : 'up'} with Google
+            </button>
+          </div>
 
           <p className="switch-line">
             {isLogin ? "Don't have an account? " : "Already have an account? "}

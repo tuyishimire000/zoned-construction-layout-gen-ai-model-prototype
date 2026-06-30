@@ -9,6 +9,16 @@ import os
 from app.data.db import get_db, User
 from app.api.schemas import UserCreate, UserLogin, Token
 from sqlalchemy import text
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+from pydantic import BaseModel
+import uuid
+
+class GoogleLogin(BaseModel):
+    credential: str
+
+GOOGLE_CLIENT_ID = "1090187417746-l0c0q3reb7hsfivsumcfbkahfu3jmfmr.apps.googleusercontent.com"
+
 
 
 
@@ -115,3 +125,52 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
 @router.get("/me")
 def read_users_me(current_user: User = Depends(get_current_user)):
     return {"id": current_user.id, "email": current_user.email, "full_name": current_user.full_name}
+
+@router.post("/google", response_model=Token)
+def google_login(login_data: GoogleLogin, db: Session = Depends(get_db)):
+    try:
+        import requests
+        
+        # Verify the Google access token
+        response = requests.get(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            headers={"Authorization": f"Bearer {login_data.credential}"}
+        )
+        if response.status_code != 200:
+            raise ValueError("Invalid Google token")
+            
+        idinfo = response.json()
+
+        email = idinfo.get("email")
+        full_name = idinfo.get("name")
+        
+        if not email:
+            raise HTTPException(status_code=400, detail="No email provided by Google")
+
+        # Find or create user
+        db_user = db.query(User).filter(User.email == email).first()
+        if not db_user:
+            # Create a user with a random unguessable password hash
+            random_pw_hash = get_password_hash(f"google_oauth_{uuid.uuid4()}")
+            db_user = User(
+                email=email, 
+                full_name=full_name, 
+                password_hash=random_pw_hash
+            )
+            db.add(db_user)
+            db.commit()
+            db.refresh(db_user)
+
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": db_user.email}, expires_delta=access_token_expires
+        )
+        return {"access_token": access_token, "token_type": "bearer"}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid Google token")
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
