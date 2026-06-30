@@ -21,26 +21,30 @@ router = APIRouter()
 @router.post("/chat", response_model=ChatResponse)
 def chat_with_architect(request: ChatRequest, db: Session = Depends(get_db)):
     session_id = request.session_id
-    
-    # 1. Load or create session
-    if session_id:
-        chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
-        if not chat_session:
-            raise HTTPException(status_code=404, detail="Session not found")
-    else:
-        chat_session = ChatSession()
-        db.add(chat_session)
+    try:
+        # 1. Load or create session
+        if session_id:
+            chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+            if not chat_session:
+                raise HTTPException(status_code=404, detail="Session not found")
+        else:
+            chat_session = ChatSession()
+            db.add(chat_session)
+            db.commit()
+            db.refresh(chat_session)
+            session_id = chat_session.id
+            
+        # 2. Save user message
+        user_msg = ChatMessage(session_id=session_id, role="user", content=request.message)
+        db.add(user_msg)
         db.commit()
-        db.refresh(chat_session)
-        session_id = chat_session.id
         
-    # 2. Save user message
-    user_msg = ChatMessage(session_id=session_id, role="user", content=request.message)
-    db.add(user_msg)
-    db.commit()
-    
-    # 3. Retrieve full history
-    history = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp).all()
+        # 3. Retrieve full history
+        history = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp).all()
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        raise HTTPException(status_code=500, detail=f"Database or route error: {str(e)}\n{tb}")
     messages_list = [{"role": msg.role, "content": msg.content} for msg in history]
     
     # 4. Generate parameters from history
