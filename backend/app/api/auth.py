@@ -38,13 +38,14 @@ def fix_db(db: Session = Depends(get_db)):
     try:
         db.execute(text("ALTER TABLE users ADD COLUMN full_name VARCHAR;"))
     except:
-        pass
+        db.rollback()
     try:
         db.execute(text("ALTER TABLE users ADD COLUMN is_verified BOOLEAN DEFAULT FALSE;"))
         db.execute(text("UPDATE users SET is_verified = TRUE;"))
         db.commit()
         return {"status": "success"}
     except Exception as e:
+        db.rollback()
         return {"error": str(e)}
 
 def verify_password(plain_password, hashed_password):
