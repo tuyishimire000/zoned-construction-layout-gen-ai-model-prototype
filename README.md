@@ -1,22 +1,54 @@
-# Smart Building Compliance & Floor Plan Prototype
+# AI Architect Studio
 
-An intelligent building compliance assessment and generative layout system. It uses Generative AI to interpret natural language architectural requests, evaluates the project against Kigali/Gasabo zoning and sanitation regulations, and automatically generates a physics-based, compliant schematic floor plan.
+Welcome to **AI Architect Studio**, a next-generation generative AI platform designed to dynamically build, assess, and refine architectural floor plans through natural language conversations.
 
-##  Key Features
+![Login Screen](docs/assets/login.png)
 
-- **Generative AI Natural Language Input**: Describe your project requirements normally (e.g., "A modern 3-bedroom house with a master suite, kitchen, and outside boy's quarters"). The system uses the Google Gemini API to extract room counts, graph connectivity, and plot parameters.
-- **Physics-Based Layout Engine**: Uses a custom force-directed graph physics engine to automatically arrange rooms based on mathematical constraints, minimizing overlap while keeping logically connected rooms attached.
-- **Auto-Routing & Compliance Fixes**: The internal AI Graph Validator automatically inspects the generated layout graph for privacy and sanitation violations (e.g., a bathroom opening directly into a living room) and repairs them dynamically by injecting buffer corridors.
-- **Dynamic Door & Window Generation**: Automatically calculates exposed exterior walls and places mathematically centered windows and entrance/exit doors without overlapping. Internal passage doors are intelligently placed where rooms touch.
-- **High-Quality Export Formats**: View your floor plan instantly in the browser as an interactive SVG, or export it to a standard architectural DXF file for CAD software integration.
-- **Interactive UI**: Adjust zoning parameters with real-time sliders and get instant compliance assessment feedback regarding setbacks, plot coverage, and sanitation rules.
+## 🚀 The Vision
+
+Traditional architectural software requires steep learning curves and manual drafting. AI Architect Studio flips the paradigm: you simply chat with your AI Architect, describe what you want, and the system **mathematically generates** a compliant, to-scale floor plan in real-time. 
+
+As you continue chatting—asking to add a bedroom, expand a kitchen, or reshape the plot—the platform remembers your previous context and dynamically re-renders the layout.
+
+![Dashboard](docs/assets/dashboard.png)
+
+## ✨ Core Capabilities
+
+### 1. Conversational AI Design (Stateful NLP)
+- **Natural Language Input**: "I want a modern 3-bedroom house with a master suite and outside boy's quarters." 
+- **Context-Aware Memory**: The system remembers your ongoing conversation. If you say "Add one more bathroom," the AI precisely updates the project parameters without losing previous instructions.
+- **Powered by Google Gemini**: Advanced LLM extraction maps your casual requests into structured architectural graphs and room counts.
+
+### 2. Custom Physics-Based Layout Engine
+Instead of snapping together pre-made templates, our custom **force-directed physics engine** creates layouts from scratch. 
+- Rooms attract logically connected adjacent rooms (e.g., Kitchen to Dining Room).
+- Rooms repel each other to prevent overlapping.
+- The engine runs hundreds of iterations in milliseconds to find the mathematically optimal room arrangement that fits within your plot boundaries.
+
+### 3. Automated Compliance & Auto-Routing Validator
+The generated graph isn't just pretty—it's heavily validated against **Kigali/Gasabo zoning laws and sanitation regulations**:
+- **Privacy Enforcement**: A bathroom cannot open directly into a living room or kitchen. If the AI detects this, the internal auto-router automatically injects buffer corridors to resolve the violation.
+- **Plot Constraints**: Checks against maximum allowed area and setback rules.
+
+### 4. Smart Wall, Door & Window Generation
+Once the rooms are placed, the engine physically models the walls:
+- **Exposed Wall Detection**: Determines which sides of a room face the outside.
+- **Dynamic Door/Window Placement**: Automatically calculating mathematical centers for exterior windows and entrances, while smartly carving out internal passage doors where adjacent rooms touch.
+
+### 5. High-Quality CAD Export
+- Instant browser viewing via **Interactive SVG**.
+- Direct export to **DXF** format for seamless integration into AutoCAD, ArchiCAD, and other professional drafting software.
+
+### 6. Public Conversation Sharing
+- Need feedback from a client or colleague? Click **Share** to generate a public link to your design session.
+- Guests load straight into a "View-Only" mode where they can see the floor plan and the chat history, but cannot modify your design.
 
 ##  Tech Stack
 
-- **Backend:** Python 3.12, FastAPI, Google GenAI SDK
+- **Backend:** Python 3.12, FastAPI, SQLAlchemy, Google GenAI SDK, SQLite/PostgreSQL
 - **Frontend:** React (Vite), Tailwind CSS, Framer Motion
-- **Layout Rendering:** Custom Python SVG & DXF Engine
-- **Deployment:** Vercel (Frontend & Serverless Functions)
+- **Layout Rendering:** Custom Python Graph Physics, SVG & DXF Generation Engine
+- **Deployment:** Vercel (Frontend & Serverless Functions), Supabase (Postgres)
 
 ##  Setup Instructions
 
@@ -28,7 +60,7 @@ An intelligent building compliance assessment and generative layout system. It u
    ```bash
    .\venv\Scripts\activate
    ```
-4. Install dependencies (if not already installed):
+4. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
@@ -45,7 +77,7 @@ An intelligent building compliance assessment and generative layout system. It u
 ### 2. Frontend Setup
 
 1. Open a new terminal and navigate to the `frontend/` directory.
-2. Install dependencies (if not already installed):
+2. Install dependencies:
    ```bash
    npm install
    ```
@@ -63,7 +95,6 @@ This project is configured to be deployed as a full-stack serverless application
 1. Create a free project on [Supabase](https://supabase.com/).
 2. Navigate to your Project Settings -> Database.
 3. Copy the **Connection String (URI)** for SQLAlchemy / PostgreSQL.
-   - Example: `postgresql://postgres.[YOUR_ID]:[YOUR_PASSWORD]@aws-0-eu-central-1.pooler.supabase.com:6543/postgres`
 
 ### 2. Vercel Deployment
 1. Install the Vercel CLI: `npm i -g vercel`
@@ -73,6 +104,6 @@ This project is configured to be deployed as a full-stack serverless application
    ```
 3. In your Vercel Dashboard, go to your project's **Settings > Environment Variables** and add:
    - `GEMINI_API_KEY`: Your Google Gemini API Key
-   - `DATABASE_URL`: Your Supabase Connection String (from step 1).
+   - `DATABASE_URL`: Your Supabase Connection String.
 
 *Note: If `DATABASE_URL` is omitted (e.g. for local development), the app will fallback to a local SQLite database file.*

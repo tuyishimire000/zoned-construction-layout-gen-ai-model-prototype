@@ -15,7 +15,11 @@ from app.compliance.validator import validate_project
 from app.compliance.graph_validator import validate_and_repair_graph
 from app.visualization.floorplan_generator import generate_floorplan
 from app.data.db import get_db, ChatSession, ChatMessage, User
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, get_optional_user
+from pydantic import BaseModel
+import uuid
+
+# ... further down ...
 
 router = APIRouter()
 
@@ -69,7 +73,10 @@ def chat_with_architect(request: ChatRequest, current_user: User = Depends(get_c
     # 6. Save AI response (a summary of actions)
     # The AI does not generate a text response in extractor right now, it just generates JSON.
     # We can create a simple summary string as the AI's response message.
-    ai_content = f"I've updated the layout! It's a {params_dict.get('usage', 'residential')} building with {params_dict.get('floors', 1)} floors on a {params_dict.get('plot_size')} sqm plot."
+    floors = params_dict.get('floors') or 1
+    plot_size = params_dict.get('plot_size') or 600.0
+    usage = params_dict.get('usage') or 'residential'
+    ai_content = f"I've updated the layout! It's a {usage} building with {floors} floors on a {plot_size} sqm plot."
     ai_msg = ChatMessage(session_id=session_id, role="assistant", content=ai_content)
     db.add(ai_msg)
     
@@ -98,7 +105,9 @@ def chat_with_architect(request: ChatRequest, current_user: User = Depends(get_c
     return ChatResponse(
         session_id=session_id,
         messages=schema_messages,
-        analysis=analysis
+        analysis=analysis,
+        is_owner=True,
+        is_public=chat_session.is_public if chat_session.is_public else False
     )
 
 @router.get("/sessions")
@@ -106,11 +115,31 @@ def get_user_sessions(current_user: User = Depends(get_current_user), db: Sessio
     sessions = db.query(ChatSession).filter(ChatSession.user_id == current_user.id).order_by(ChatSession.updated_at.desc()).all()
     return [{"id": s.id, "created_at": s.created_at, "updated_at": s.updated_at} for s in sessions]
 
-@router.get("/session/{session_id}", response_model=ChatResponse)
-def get_session(session_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+class ShareResponse(BaseModel):
+    message: str
+    url: str
+
+@router.post("/session/{session_id}/share", response_model=ShareResponse)
+def share_session(session_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
     if not chat_session or chat_session.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Session not found")
+        
+    chat_session.is_public = True
+    db.commit()
+    
+    return ShareResponse(message="Session shared successfully", url=f"/?session={session_id}")
+
+@router.get("/session/{session_id}", response_model=ChatResponse)
+def get_session(session_id: str, current_user: User = Depends(get_optional_user), db: Session = Depends(get_db)):
+    chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    is_owner = current_user is not None and chat_session.user_id == current_user.id
+    if not is_owner and not chat_session.is_public:
+        raise HTTPException(status_code=404, detail="Session not found or not public")
     
     history = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp).all()
     
@@ -139,7 +168,9 @@ def get_session(session_id: str, current_user: User = Depends(get_current_user),
     return ChatResponse(
         session_id=session_id,
         messages=[SchemaChatMessage(role=msg.role, content=msg.content) for msg in history],
-        analysis=analysis_resp
+        analysis=analysis_resp,
+        is_owner=is_owner,
+        is_public=chat_session.is_public if chat_session.is_public else False
     )
 
 

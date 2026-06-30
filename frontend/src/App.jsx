@@ -20,8 +20,12 @@ function App() {
     const params = new URLSearchParams(window.location.search);
     const rToken = params.get('reset_token');
     const vToken = params.get('verify_token');
+    const sToken = params.get('session');
     
-    if (rToken) {
+    if (sToken) {
+      loadSession(sToken, token);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (rToken) {
       setResetToken(rToken);
       setDocView('reset-password');
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -61,6 +65,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [isSessionOwner, setIsSessionOwner] = useState(true);
+  const [sessionIsPublic, setSessionIsPublic] = useState(false);
   const messagesEndRef = useRef(null);
   
   // Loading state
@@ -211,17 +217,22 @@ function App() {
     setMessages([{ role: 'assistant', content: 'Hello — I\'m your AI architect. What kind of building would you like to design today?' }]);
   };
 
-  const loadSession = async (id) => {
+  const loadSession = async (id, currentToken) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/session/${id}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const headers = {};
+      const actualToken = currentToken !== undefined ? currentToken : token;
+      if (actualToken) {
+        headers['Authorization'] = `Bearer ${actualToken}`;
+      }
+      const res = await fetch(`/api/session/${id}`, { headers });
       if (res.ok) {
         const data = await res.json();
         setSessionId(data.session_id);
         setMessages(data.messages);
         setResult(data.analysis);
+        setIsSessionOwner(data.is_owner !== undefined ? data.is_owner : true);
+        setSessionIsPublic(data.is_public !== undefined ? data.is_public : false);
       }
     } catch (e) {
       console.error(e);
@@ -229,6 +240,7 @@ function App() {
       setLoading(false);
     }
   };
+
 
   const startNewSession = () => {
     setSessionId(null);
@@ -442,7 +454,7 @@ function App() {
     );
   }
 
-  if (!user) {
+  if (!user && !(sessionId && sessionIsPublic)) {
     return (
       <div className="auth-layout">
         <div className="card">
@@ -603,35 +615,41 @@ function App() {
 
         <div className="sidebar-content">
           <div className="user-chip">
-            <span>{user.full_name || user.email}<span className="role">Signed in</span></span>
+            <span>{user ? (user.full_name || user.email) : 'Guest'}<span className="role">{user ? 'Signed in' : 'View only'}</span></span>
           </div>
 
-        <button className="btn-new" onClick={startNewSession}>
-          <svg viewBox="0 0 16 16" fill="none"><path d="M8 2.5V13.5M2.5 8H13.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>
-          New design
-        </button>
+        {isSessionOwner && (
+          <button className="btn-new" onClick={startNewSession}>
+            <svg viewBox="0 0 16 16" fill="none"><path d="M8 2.5V13.5M2.5 8H13.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>
+            New design
+          </button>
+        )}
 
-        <div className="section-label">Recent projects</div>
-        {sessions.map(s => (
-          <div 
-            key={s.id} 
-            className={`project-row ${sessionId === s.id ? 'active' : ''}`}
-            onClick={() => loadSession(s.id)}
-          >
-            <div className="project-icon">
-              <svg viewBox="0 0 16 16" fill="none"><path d="M2 14V6L8 2L14 6V14" stroke="currentColor" strokeWidth="1.4"/><path d="M5 14V9H11V14" stroke="currentColor" strokeWidth="1.4"/></svg>
-            </div>
-            <div className="project-meta">
-              <div className="name">Project {s.id.substring(0,6)}</div>
-              <div className="date">{new Date(s.updated_at).toLocaleDateString('en-US', {month:'2-digit', day:'2-digit', year:'numeric'}).replace(/\//g, '.')}</div>
-            </div>
-          </div>
-        ))}
+        {user && (
+          <>
+            <div className="section-label">Recent projects</div>
+            {sessions.map(s => (
+              <div 
+                key={s.id} 
+                className={`project-row ${sessionId === s.id ? 'active' : ''}`}
+                onClick={() => loadSession(s.id)}
+              >
+                <div className="project-icon">
+                  <svg viewBox="0 0 16 16" fill="none"><path d="M2 14V6L8 2L14 6V14" stroke="currentColor" strokeWidth="1.4"/><path d="M5 14V9H11V14" stroke="currentColor" strokeWidth="1.4"/></svg>
+                </div>
+                <div className="project-meta">
+                  <div className="name">Project {s.id.substring(0,6)}</div>
+                  <div className="date">{new Date(s.updated_at).toLocaleDateString('en-US', {month:'2-digit', day:'2-digit', year:'numeric'}).replace(/\//g, '.')}</div>
+                </div>
+              </div>
+            ))}
+          </>
+        )}
 
           <div className="sidebar-foot">
             <button className="btn-signout" onClick={logout}>
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M6 14H3.5A1.5 1.5 0 0 1 2 12.5v-9A1.5 1.5 0 0 1 3.5 2H6M11 11.5L14.5 8L11 4.5M6 8H14.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              Sign out
+              {user ? 'Sign out' : 'Sign in'}
             </button>
           </div>
         </div>
@@ -649,9 +667,43 @@ function App() {
         <div className="workspace">
           <div className="frame">
             <div className="corner-bl"></div><div className="corner-br"></div>
-            <div className="frame-head">
+            <div className="frame-head row-between">
               <h2>Conversation</h2>
-              <span className="idx">01 / BRIEF</span>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                <span className="idx">01 / BRIEF</span>
+                {sessionId && (
+                  <button 
+                    className="btn-secondary" 
+                    style={{ padding: '4px 10px', fontSize: '12px', height: '28px', gap: '6px' }}
+                    onClick={async () => {
+                      if (!isSessionOwner) {
+                        navigator.clipboard.writeText(`${window.location.origin}/?session=${sessionId}`);
+                        alert("Link copied to clipboard!");
+                        return;
+                      }
+                      try {
+                        const res = await fetch(`/api/session/${sessionId}/share`, {
+                          method: 'POST',
+                          headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          navigator.clipboard.writeText(`${window.location.origin}${data.url}`);
+                          setSessionIsPublic(true);
+                          alert("Link copied to clipboard!");
+                        } else {
+                          alert("Failed to share session");
+                        }
+                      } catch (e) {
+                        console.error(e);
+                      }
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
+                    Share
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="thread">
@@ -676,12 +728,12 @@ function App() {
             <form className="composer" onSubmit={handleSendMessage}>
               <input 
                 type="text" 
-                placeholder="Add another bedroom and a master suite…" 
+                placeholder={isSessionOwner ? "Add another bedroom and a master suite…" : "View-only mode"} 
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
-                disabled={loading}
+                disabled={loading || !isSessionOwner}
               />
-              <button type="submit" disabled={loading || !inputMessage.trim()}>
+              <button type="submit" disabled={loading || !inputMessage.trim() || !isSessionOwner}>
                 Send
                 <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 8H14M9 3L14 8L9 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
               </button>

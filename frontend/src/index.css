@@ -59,6 +59,12 @@ body{
 .sidebar-header .brandmark {
   margin-bottom: 0;
 }
+
+.sidebar-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
 .mobile-menu-btn {
   display: none;
   background: transparent;
@@ -285,6 +291,34 @@ body{
   white-space: pre-wrap;
 }
 .msg.ai{align-self:flex-start;}
+
+.msg-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  padding-left: 2px;
+}
+.msg-actions.user-actions {
+  justify-content: flex-end;
+  padding-left: 0;
+  padding-right: 2px;
+}
+.msg-action-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+.msg-action-btn:hover {
+  color: var(--text-hi);
+  background: rgba(255,255,255,0.08);
+}
 .msg.ai .bubble{
   background:var(--panel-2);
   color:var(--text-hi);
@@ -365,6 +399,8 @@ body{
   background-size:18px 18px;
 }
 .canvas-wrap img {
+  width: 100%;
+  height: 100%;
   max-width: 95%;
   max-height: 95%;
   object-fit: contain;

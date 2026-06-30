@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, Column, String, Integer, DateTime, Text, JSON, ForeignKey, Boolean
+from sqlalchemy import create_engine, Column, String, Integer, DateTime, Text, JSON, ForeignKey, Boolean, text
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 from datetime import datetime
 import uuid
@@ -44,6 +44,7 @@ class ChatSession(Base):
     user_id = Column(String, ForeignKey("users.id"), nullable=True) # nullable for backwards compatibility initially
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_public = Column(Boolean, default=False)
     
     # Store the latest extracted project parameters as JSON so we don't have to re-parse every time
     current_state = Column(JSON, nullable=True)
@@ -65,6 +66,16 @@ class ChatMessage(Base):
 # Create all tables (if they don't exist)
 try:
     Base.metadata.create_all(bind=engine)
+    
+    # Simple migration to add new columns if they don't exist
+    with engine.begin() as conn:
+        try:
+            if "postgresql" in DATABASE_URL:
+                conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN is_public BOOLEAN DEFAULT FALSE"))
+            else:
+                conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN is_public BOOLEAN DEFAULT 0"))
+        except Exception as e:
+            print(f"Migration skipped (column likely already exists). Error: {e}")
 except Exception as e:
     print(f"Warning: Could not create tables on startup. Error: {e}")
 

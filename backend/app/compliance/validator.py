@@ -17,7 +17,7 @@ def validate_project(params: dict) -> dict:
         
     usage_rules = rules[usage]
     
-    plot_size = params.get("plot_size") or 0.0
+    plot_size = params.get("plot_size") or 600.0
     floors = params.get("floors") or 1
     
     allowed_area = plot_size * usage_rules["max_site_coverage"]
