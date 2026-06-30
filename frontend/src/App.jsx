@@ -9,6 +9,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [isLogin, setIsLogin] = useState(true);
   const [docView, setDocView] = useState(null); // 'terms', 'privacy', 'forgot-password', 'reset-password', 'verify-pending', 'verify-processing'
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [resetToken, setResetToken] = useState(null);
   const [verifyToken, setVerifyToken] = useState(null);
   const [authSuccess, setAuthSuccess] = useState("");
@@ -565,19 +566,29 @@ function App() {
 
   return (
     <div className="app">
-      <aside className="sidebar">
-        <div className="brandmark">
-          <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-            <rect x="1" y="1" width="24" height="24" rx="2" stroke="#6FE3D6" strokeWidth="1.4"/>
-            <path d="M5 19V11L13 5L21 11V19" stroke="#E8A23D" strokeWidth="1.4" strokeLinejoin="round"/>
-            <path d="M9.5 19V13.5H16.5V19" stroke="#6FE3D6" strokeWidth="1.4"/>
-          </svg>
-          <div className="name">Studio<b>AI Architect</b></div>
+      <aside className={`sidebar ${isMobileMenuOpen ? 'open' : 'closed'}`}>
+        <div className="sidebar-header">
+          <div className="brandmark">
+            <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+              <rect x="1" y="1" width="24" height="24" rx="2" stroke="#6FE3D6" strokeWidth="1.4"/>
+              <path d="M5 19V11L13 5L21 11V19" stroke="#E8A23D" strokeWidth="1.4" strokeLinejoin="round"/>
+              <path d="M9.5 19V13.5H16.5V19" stroke="#6FE3D6" strokeWidth="1.4"/>
+            </svg>
+            <div className="name">Studio<b>AI Architect</b></div>
+          </div>
+          <button className="mobile-menu-btn" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+            {isMobileMenuOpen ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+            )}
+          </button>
         </div>
 
-        <div className="user-chip">
-          <span>{user.full_name || user.email}<span className="role">Signed in</span></span>
-        </div>
+        <div className="sidebar-content">
+          <div className="user-chip">
+            <span>{user.full_name || user.email}<span className="role">Signed in</span></span>
+          </div>
 
         <button className="btn-new" onClick={startNewSession}>
           <svg viewBox="0 0 16 16" fill="none"><path d="M8 2.5V13.5M2.5 8H13.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>
@@ -601,11 +612,12 @@ function App() {
           </div>
         ))}
 
-        <div className="sidebar-foot">
-          <button className="btn-signout" onClick={logout}>
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M6 14H3.5A1.5 1.5 0 0 1 2 12.5v-9A1.5 1.5 0 0 1 3.5 2H6M11 11.5L14.5 8L11 4.5M6 8H14.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            Sign out
-          </button>
+          <div className="sidebar-foot">
+            <button className="btn-signout" onClick={logout}>
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M6 14H3.5A1.5 1.5 0 0 1 2 12.5v-9A1.5 1.5 0 0 1 3.5 2H6M11 11.5L14.5 8L11 4.5M6 8H14.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              Sign out
+            </button>
+          </div>
         </div>
       </aside>
 

@@ -45,11 +45,29 @@ body{
   display:flex;
   flex-direction:column;
 }
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 34px;
+}
+.sidebar-header .brandmark {
+  margin-bottom: 0;
+}
+.mobile-menu-btn {
+  display: none;
+  background: transparent;
+  border: none;
+  color: var(--text-hi);
+  cursor: pointer;
+  padding: 4px;
+}
+.mobile-menu-btn svg { width: 20px; height: 20px; }
+
 .brandmark{
   display:flex;
   align-items:center;
   gap:10px;
-  margin-bottom:34px;
 }
 .brandmark svg{flex-shrink:0;}
 .brandmark .name{
@@ -649,8 +667,13 @@ body{
     display: flex;
     flex-direction: column;
   }
+  .mobile-menu-btn { display: block; }
+  .sidebar-header { margin-bottom: 0; }
+  .sidebar.closed .sidebar-content { display: none; }
+  .sidebar.open .sidebar-content { display: flex; flex-direction: column; margin-top: 24px; flex: 1; }
+  
   .sidebar {
-    padding: 16px;
+    padding: 16px 20px;
     border-right: none;
     border-bottom: 1px solid var(--line);
   }
