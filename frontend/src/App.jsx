@@ -291,7 +291,7 @@ function App() {
         </div>
 
         <div className="user-chip">
-          <div className="dot"></div>
+
           <span>{user.email}<span className="role">Signed in</span></span>
         </div>
 
@@ -331,7 +331,7 @@ function App() {
             <h1>AI Architect Studio</h1>
             <p>Chat with your AI to dynamically design and refine your building, drawn to scale as you go.</p>
           </div>
-          <div className="hero-tag">REV. 001 / DRAFT</div>
+
         </div>
 
         <div className="workspace">
@@ -414,7 +414,7 @@ function App() {
 
             <div className="legend">
               <div className="legend-group">
-                <div className="legend-item"><span className="legend-swatch" style={{background:'#6FE3D6'}}></span>Generated wall</div>
+
                 <div className="legend-item"><span className="legend-swatch" style={{background: hasIssues ? '#E8A23D' : 'transparent'}}></span>{hasIssues ? 'Pending revision' : ''}</div>
               </div>
               
