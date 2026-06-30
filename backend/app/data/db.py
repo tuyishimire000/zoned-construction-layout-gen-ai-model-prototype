@@ -7,7 +7,7 @@ import uuid
 import ssl
 
 # Fallback to local SQLite if DATABASE_URL is not set
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:////tmp/chat_history.db")
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:////tmp/chat_history_v2.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
