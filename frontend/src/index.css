@@ -574,3 +574,32 @@ body{
   cursor: pointer;
 }
 .switch-line span:hover{text-decoration:underline;}
+
+.divider{
+  display:flex;align-items:center;gap:12px;
+  margin:6px 0 18px;
+}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line);}
+.divider span{
+  font-family:'IBM Plex Mono',monospace;
+  font-size:10px;
+  letter-spacing:0.1em;
+  color:var(--text-faint);
+  text-transform:uppercase;
+}
+
+.btn-google{
+  width:100%;
+  height:46px;
+  background:var(--panel-2);
+  border:1px solid var(--line);
+  border-radius:3px;
+  color:var(--text-hi);
+  font-size:13.5px;
+  font-family:'Inter',sans-serif;
+  font-weight:500;
+  cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  margin-bottom:24px;
+}
+.btn-google:hover{border-color:var(--line-soft);background:#13203450;}
