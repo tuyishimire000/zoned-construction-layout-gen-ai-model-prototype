@@ -45,7 +45,10 @@ class ChatMessage(Base):
     session = relationship("ChatSession", back_populates="messages")
 
 # Create all tables (if they don't exist)
-Base.metadata.create_all(bind=engine)
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    print(f"Warning: Could not create tables on startup. Error: {e}")
 
 def get_db():
     db = SessionLocal()
