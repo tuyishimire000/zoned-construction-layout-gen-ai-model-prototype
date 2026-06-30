@@ -2,7 +2,7 @@
 
 An intelligent building compliance assessment and generative layout system. It uses Generative AI to interpret natural language architectural requests, evaluates the project against Kigali/Gasabo zoning and sanitation regulations, and automatically generates a physics-based, compliant schematic floor plan.
 
-## ✨ Key Features
+##  Key Features
 
 - **Generative AI Natural Language Input**: Describe your project requirements normally (e.g., "A modern 3-bedroom house with a master suite, kitchen, and outside boy's quarters"). The system uses the Google Gemini API to extract room counts, graph connectivity, and plot parameters.
 - **Physics-Based Layout Engine**: Uses a custom force-directed graph physics engine to automatically arrange rooms based on mathematical constraints, minimizing overlap while keeping logically connected rooms attached.
@@ -11,14 +11,14 @@ An intelligent building compliance assessment and generative layout system. It u
 - **High-Quality Export Formats**: View your floor plan instantly in the browser as an interactive SVG, or export it to a standard architectural DXF file for CAD software integration.
 - **Interactive UI**: Adjust zoning parameters with real-time sliders and get instant compliance assessment feedback regarding setbacks, plot coverage, and sanitation rules.
 
-## 🛠️ Tech Stack
+##  Tech Stack
 
 - **Backend:** Python 3.12, FastAPI, Google GenAI SDK
 - **Frontend:** React (Vite), Tailwind CSS, Framer Motion
 - **Layout Rendering:** Custom Python SVG & DXF Engine
 - **Deployment:** Vercel (Frontend & Serverless Functions)
 
-## 🚀 Setup Instructions
+##  Setup Instructions
 
 ### 1. Backend Setup
 
@@ -55,7 +55,7 @@ An intelligent building compliance assessment and generative layout system. It u
    ```
 4. Open the URL provided in the terminal (usually http://localhost:5173) in your browser.
 
-## 🌐 Deployment (Vercel + Supabase)
+##  Deployment (Vercel)
 
 This project is configured to be deployed as a full-stack serverless application on Vercel, using a Postgres database (like Supabase) for chat history persistence.
 
