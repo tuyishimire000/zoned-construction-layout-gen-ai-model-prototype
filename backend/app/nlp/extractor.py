@@ -36,6 +36,7 @@ class ExtractorSchema(BaseModel):
     floors: int | None = Field(default=1, description="Number of floors. Default to 1.")
     usage: str | None = Field(default="residential", description="Usage type: residential, commercial, industrial, or mixed-use.")
     parking_spaces: int | None = Field(default=0, description="Number of parking spaces.")
+    response_message: str = Field(description="A friendly, conversational, and dynamic natural language response to the user. It should summarize the latest updates made to the floor plan based on their request. Make it read naturally, as if you are a human architect presenting the updated design.")
     rooms: RoomCounts
     graph: LayoutGraph = Field(description="Topological map of how the rooms physically connect.")
 
