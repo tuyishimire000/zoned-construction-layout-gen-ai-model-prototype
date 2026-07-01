@@ -24,7 +24,6 @@ function App() {
     
     if (sToken) {
       loadSession(sToken, token);
-      window.history.replaceState({}, document.title, window.location.pathname);
     } else if (rToken) {
       setResetToken(rToken);
       setDocView('reset-password');
@@ -68,6 +67,7 @@ function App() {
   const [isSessionOwner, setIsSessionOwner] = useState(true);
   const [sessionIsPublic, setSessionIsPublic] = useState(false);
   const messagesEndRef = useRef(null);
+  const fetchSessionsRef = useRef(false);
   
   // Loading state
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0);
@@ -107,6 +107,12 @@ function App() {
       if (res.ok) {
         const data = await res.json();
         setSessions(data);
+        
+        const params = new URLSearchParams(window.location.search);
+        if (!fetchSessionsRef.current && data.length > 0 && !params.get('session')) {
+          loadSession(data[0].id);
+        }
+        fetchSessionsRef.current = true;
       }
     } catch (e) {
       console.error("Failed to fetch sessions");
@@ -215,6 +221,10 @@ function App() {
     setSessionId(null);
     setResult(null);
     setMessages([{ role: 'assistant', content: 'Hello — I\'m your AI architect. What kind of building would you like to design today?' }]);
+    fetchSessionsRef.current = false;
+    const url = new URL(window.location);
+    url.searchParams.delete('session');
+    window.history.replaceState({}, '', url);
   };
 
   const loadSession = async (id, currentToken) => {
@@ -233,6 +243,10 @@ function App() {
         setResult(data.analysis);
         setIsSessionOwner(data.is_owner !== undefined ? data.is_owner : true);
         setSessionIsPublic(data.is_public !== undefined ? data.is_public : false);
+        
+        const url = new URL(window.location);
+        url.searchParams.set('session', data.session_id);
+        window.history.replaceState({}, '', url);
       }
     } catch (e) {
       console.error(e);
@@ -246,6 +260,12 @@ function App() {
     setSessionId(null);
     setResult(null);
     setMessages([{ role: 'assistant', content: 'Hello — I\'m your AI architect. What kind of building would you like to design today?' }]);
+    setIsSessionOwner(true);
+    setSessionIsPublic(false);
+    
+    const url = new URL(window.location);
+    url.searchParams.delete('session');
+    window.history.pushState({}, '', url);
   };
   
   // Auto-scroll chat
@@ -305,6 +325,9 @@ function App() {
       
       if (!sessionId && data.session_id) {
          fetchSessions();
+         const url = new URL(window.location);
+         url.searchParams.set('session', data.session_id);
+         window.history.replaceState({}, '', url);
       }
       setSessionId(data.session_id);
       setMessages(data.messages);

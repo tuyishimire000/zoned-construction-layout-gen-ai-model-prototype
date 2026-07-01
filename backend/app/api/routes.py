@@ -154,7 +154,7 @@ def get_session(session_id: str, current_user: User = Depends(get_optional_user)
         floor_plan_b64 = ""
         dxf_b64 = None
         if params_dict.get("graph"):
-            floor_plan_b64, dxf_b64, score = generate_floorplan(params_dict)
+            floor_plan_b64, dxf_b64, score = generate_floorplan(params_dict, compliance_dict)
             
         analysis_resp = AnalysisResponse(
             extracted_parameters=ProjectParameters(**params_dict),
