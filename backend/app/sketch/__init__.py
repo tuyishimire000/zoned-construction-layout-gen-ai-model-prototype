@@ -5,6 +5,6 @@ is intentionally decoupled from app.visualization so it can be reasoned about an
 run on its own.
 """
 
-from .house_sketch import HouseSketch, SketchValidationError, RoomType
+from .house_sketch import HouseSketch, RoomSpec, SketchValidationError, RoomType
 
-__all__ = ["HouseSketch", "SketchValidationError", "RoomType"]
+__all__ = ["HouseSketch", "RoomSpec", "SketchValidationError", "RoomType"]
