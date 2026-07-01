@@ -311,6 +311,20 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
             openings[rb].append(Opening(o_type, dx, dy, dlen, ori, swing=swing, style="swing"))
             room_doors_count[ra] += 1
             room_doors_count[rb] += 1
+            
+        def get_privacy_score(t):
+            t = t.lower()
+            if "bath" in t or "toilet" in t or "wc" in t: return 10
+            if "bed" in t or "master" in t: return 8
+            if "office" in t or "study" in t: return 7
+            if "kitchen" in t: return 5
+            if "dining" in t: return 4
+            if "living" in t or "lounge" in t: return 3
+            if "corridor" in t or "hall" in t: return 1
+            return 5
+            
+        score_a = get_privacy_score(type_a)
+        score_b = get_privacy_score(type_b)
         
         if abs(r1.right - r2.x) < 0.1 or abs(r2.right - r1.x) < 0.1:
             # Vertical wall
@@ -319,7 +333,12 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
             ys, ye = max(r1.y, r2.y), min(r1.bottom, r2.bottom)
             if ye - ys >= door_len:
                 dy = ys + (ye - ys - door_len) / 2
-                swing = "right" if is_r1_left else "left"
+                if score_a > score_b:
+                    swing = "left" if is_r1_left else "right"
+                elif score_b > score_a:
+                    swing = "right" if is_r1_left else "left"
+                else:
+                    swing = "right" if is_r1_left else "left"
                 add_door(op_type, x, dy, door_len, Orientation.VERTICAL, swing)
         elif abs(r1.bottom - r2.y) < 0.1 or abs(r2.bottom - r1.y) < 0.1:
             # Horizontal wall
@@ -328,7 +347,12 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
             xs, xe = max(r1.x, r2.x), min(r1.right, r2.right)
             if xe - xs >= door_len:
                 dx = xs + (xe - xs - door_len) / 2
-                swing = "down" if is_r1_top else "up"
+                if score_a > score_b:
+                    swing = "up" if is_r1_top else "down"
+                elif score_b > score_a:
+                    swing = "down" if is_r1_top else "up"
+                else:
+                    swing = "down" if is_r1_top else "up"
                 add_door(op_type, dx, y, door_len, Orientation.HORIZONTAL, swing)
 
     # Fallback: if a room has no doors/passages but touches another room, force a door!
@@ -348,17 +372,26 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
                 if (is_bed or is_bath) and (is_kitchen or is_living):
                     continue
                     
+                is_passage = all("corridor" in t.lower() or "living" in t.lower() or "dining" in t.lower() or "kitchen" in t.lower() for t in types_set)
+                fallback_op_type = OpeningType.PASSAGE if is_passage else OpeningType.DOOR
+                door_len = 1.2 if is_passage else 0.8
+                
+                score_r = get_privacy_score(type_a)
+                score_other = get_privacy_score(type_b)
+                
                 # check if they touch
                 if abs(r.right - other_r.x) < 0.1 or abs(other_r.right - r.x) < 0.1:
                     is_r_left = abs(r.right - other_r.x) < 0.1
                     x = r.right if is_r_left else other_r.right
                     ys, ye = max(r.y, other_r.y), min(r.bottom, other_r.bottom)
-                    is_passage = all("corridor" in t.lower() or "living" in t.lower() or "dining" in t.lower() or "kitchen" in t.lower() for t in types_set)
-                    fallback_op_type = OpeningType.PASSAGE if is_passage else OpeningType.DOOR
-                    door_len = 1.2 if is_passage else 0.8
                     if ye - ys >= door_len:
                         dy = ys + (ye - ys - door_len) / 2
-                        swing = "right" if is_r_left else "left"
+                        if score_r > score_other:
+                            swing = "left" if is_r_left else "right"
+                        elif score_other > score_r:
+                            swing = "right" if is_r_left else "left"
+                        else:
+                            swing = "right" if is_r_left else "left"
                         openings[nid].append(Opening(fallback_op_type, x, dy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
                         openings[other_id].append(Opening(fallback_op_type, x, dy, door_len, Orientation.VERTICAL, swing=swing, style="swing"))
                         room_doors_count[nid] += 1
@@ -367,13 +400,14 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
                     is_r_top = abs(r.bottom - other_r.y) < 0.1
                     y = r.bottom if is_r_top else other_r.bottom
                     xs, xe = max(r.x, other_r.x), min(r.right, other_r.right)
-                    
-                    is_passage = all("corridor" in t.lower() or "living" in t.lower() or "dining" in t.lower() or "kitchen" in t.lower() for t in types_set)
-                    fallback_op_type = OpeningType.PASSAGE if is_passage else OpeningType.DOOR
-                    door_len = 1.2 if is_passage else 0.8
                     if xe - xs >= door_len:
                         dx = xs + (xe - xs - door_len) / 2
-                        swing = "down" if is_r_top else "up"
+                        if score_r > score_other:
+                            swing = "up" if is_r_top else "down"
+                        elif score_other > score_r:
+                            swing = "down" if is_r_top else "up"
+                        else:
+                            swing = "down" if is_r_top else "up"
                         openings[nid].append(Opening(fallback_op_type, dx, y, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
                         openings[other_id].append(Opening(fallback_op_type, dx, y, door_len, Orientation.HORIZONTAL, swing=swing, style="swing"))
                         room_doors_count[nid] += 1

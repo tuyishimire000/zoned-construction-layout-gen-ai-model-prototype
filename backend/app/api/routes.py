@@ -71,12 +71,15 @@ def chat_with_architect(request: ChatRequest, current_user: User = Depends(get_c
         raise HTTPException(status_code=500, detail=f"Error in layout generation: {str(e)}\n\n{tb}")
         
     # 6. Save AI response (a summary of actions)
-    # The AI does not generate a text response in extractor right now, it just generates JSON.
-    # We can create a simple summary string as the AI's response message.
     floors = params_dict.get('floors') or 1
     plot_size = params_dict.get('plot_size') or 600.0
     usage = params_dict.get('usage') or 'residential'
-    ai_content = f"I've updated the layout! It's a {usage} building with {floors} floors on a {plot_size} sqm plot."
+    
+    # Use dynamic AI response if available, fallback to hardcoded string
+    ai_content = params_dict.get('response_message') 
+    if not ai_content:
+        ai_content = f"I've updated the layout! It's a {usage} building with {floors} floors on a {plot_size} sqm plot."
+        
     ai_msg = ChatMessage(session_id=session_id, role="assistant", content=ai_content)
     db.add(ai_msg)
     
@@ -154,7 +157,7 @@ def get_session(session_id: str, current_user: User = Depends(get_optional_user)
         floor_plan_b64 = ""
         dxf_b64 = None
         if params_dict.get("graph"):
-            floor_plan_b64, dxf_b64, score = generate_floorplan(params_dict)
+            floor_plan_b64, dxf_b64, score = generate_floorplan(params_dict, compliance_dict)
             
         analysis_resp = AnalysisResponse(
             extracted_parameters=ProjectParameters(**params_dict),
