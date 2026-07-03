@@ -69,7 +69,7 @@ def render_dxf_bytes(plan: FloorPlan) -> tuple[ezdxf.document.Drawing, bytes]:
     # Structural Outlines
     doc.layers.add("WALLS", color=7, true_color=_rgb(0, 0, 0))           # Thick black
     doc.layers.add("WIPEOUT", color=7, true_color=_rgb(255, 255, 255))   # Solid White mask
-    doc.layers.add("DOORS", color=7, true_color=_rgb(0, 0, 0))           # Black
+    doc.layers.add("DOORS", color=5, true_color=_rgb(59, 130, 246))        # Blue
     doc.layers.add("WINDOWS", color=5, true_color=_rgb(59, 130, 246))    # Blue windows
     
     doc.layers.add("FURNITURE", color=7, true_color=_rgb(107, 114, 128)) # Gray furniture
@@ -166,11 +166,11 @@ def render_dxf_bytes(plan: FloorPlan) -> tuple[ezdxf.document.Drawing, bytes]:
             elif op.type == OpeningType.DOOR:
                 # Door jambs
                 if is_horiz:
-                    msp.add_line((x1, y1 - wt/2), (x1, y1 + wt/2), dxfattribs={"layer": layer})
-                    msp.add_line((x2, y2 - wt/2), (x2, y2 + wt/2), dxfattribs={"layer": layer})
+                    msp.add_line((x1, y1 - wt/2), (x1, y1 + wt/2), dxfattribs={"layer": layer, "color": 7})
+                    msp.add_line((x2, y2 - wt/2), (x2, y2 + wt/2), dxfattribs={"layer": layer, "color": 7})
                 else:
-                    msp.add_line((x1 - wt/2, y1), (x1 + wt/2, y1), dxfattribs={"layer": layer})
-                    msp.add_line((x2 - wt/2, y2), (x2 + wt/2, y2), dxfattribs={"layer": layer})
+                    msp.add_line((x1 - wt/2, y1), (x1 + wt/2, y1), dxfattribs={"layer": layer, "color": 7})
+                    msp.add_line((x2 - wt/2, y2), (x2 + wt/2, y2), dxfattribs={"layer": layer, "color": 7})
                 
                 # Door panel and realistic arc
                 if op.swing:
@@ -182,23 +182,23 @@ def render_dxf_bytes(plan: FloorPlan) -> tuple[ezdxf.document.Drawing, bytes]:
                         if op.hinge_at_start:
                             cx = x1 + offset
                             cy = y1
-                            leaf_y = cy - leaf_len if op.swing == "up" else cy + leaf_len
-                            if is_pivot: msp.add_line((x1, y1), (cx, cy), dxfattribs={"layer": layer, "lineweight": 15})
-                            msp.add_line((cx, cy), (cx, leaf_y), dxfattribs={"layer": layer, "lineweight": 15})
+                            leaf_y = cy + leaf_len if op.swing == "up" else cy - leaf_len
+                            if is_pivot: msp.add_line((x1, y1), (cx, cy), dxfattribs={"layer": layer, "lineweight": 15, "color": 7})
+                            msp.add_line((cx, cy), (cx, leaf_y), dxfattribs={"layer": layer, "lineweight": 15, "color": 7})
                             if op.swing == "up":
-                                sa, ea = 270, 360
-                            else:
                                 sa, ea = 0, 90
+                            else:
+                                sa, ea = 270, 360
                         else:
                             cx = x2 - offset
                             cy = y2
-                            leaf_y = cy - leaf_len if op.swing == "up" else cy + leaf_len
-                            if is_pivot: msp.add_line((x2, y2), (cx, cy), dxfattribs={"layer": layer, "lineweight": 15})
-                            msp.add_line((cx, cy), (cx, leaf_y), dxfattribs={"layer": layer, "lineweight": 15})
+                            leaf_y = cy + leaf_len if op.swing == "up" else cy - leaf_len
+                            if is_pivot: msp.add_line((x2, y2), (cx, cy), dxfattribs={"layer": layer, "lineweight": 15, "color": 7})
+                            msp.add_line((cx, cy), (cx, leaf_y), dxfattribs={"layer": layer, "lineweight": 15, "color": 7})
                             if op.swing == "up":
-                                sa, ea = 180, 270
-                            else:
                                 sa, ea = 90, 180
+                            else:
+                                sa, ea = 180, 270
                                 
                         msp.add_arc((cx, cy), radius=leaf_len, start_angle=sa, end_angle=ea, dxfattribs={"layer": layer, "lineweight": 0})
                     else:
@@ -206,8 +206,8 @@ def render_dxf_bytes(plan: FloorPlan) -> tuple[ezdxf.document.Drawing, bytes]:
                             cx = x1
                             cy = y1 + offset
                             leaf_x = cx - leaf_len if op.swing == "left" else cx + leaf_len
-                            if is_pivot: msp.add_line((x1, y1), (cx, cy), dxfattribs={"layer": layer, "lineweight": 15})
-                            msp.add_line((cx, cy), (leaf_x, cy), dxfattribs={"layer": layer, "lineweight": 15})
+                            if is_pivot: msp.add_line((x1, y1), (cx, cy), dxfattribs={"layer": layer, "lineweight": 15, "color": 7})
+                            msp.add_line((cx, cy), (leaf_x, cy), dxfattribs={"layer": layer, "lineweight": 15, "color": 7})
                             if op.swing == "left":
                                 sa, ea = 90, 180
                             else:
@@ -216,8 +216,8 @@ def render_dxf_bytes(plan: FloorPlan) -> tuple[ezdxf.document.Drawing, bytes]:
                             cx = x2
                             cy = y2 - offset
                             leaf_x = cx - leaf_len if op.swing == "left" else cx + leaf_len
-                            if is_pivot: msp.add_line((x2, y2), (cx, cy), dxfattribs={"layer": layer, "lineweight": 15})
-                            msp.add_line((cx, cy), (leaf_x, cy), dxfattribs={"layer": layer, "lineweight": 15})
+                            if is_pivot: msp.add_line((x2, y2), (cx, cy), dxfattribs={"layer": layer, "lineweight": 15, "color": 7})
+                            msp.add_line((cx, cy), (leaf_x, cy), dxfattribs={"layer": layer, "lineweight": 15, "color": 7})
                             if op.swing == "left":
                                 sa, ea = 180, 270
                             else:
