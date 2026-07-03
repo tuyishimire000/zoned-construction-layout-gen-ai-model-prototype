@@ -611,25 +611,39 @@ def build_floorplan(params: dict, compliance: dict) -> FloorPlan:
             
         for d in hr.doors:
             d_len = _dist(d.leaf[0], d.leaf[1])
-            hinge = d.leaf[0]
-            open_tip = d.arc[-1] if d.arc else d.leaf[1]
+            # The gap center
+            center_x = (d.leaf[0][0] + d.leaf[1][0]) / 2
+            center_y = (d.leaf[0][1] + d.leaf[1][1]) / 2
             
             orient = Orientation.HORIZONTAL if abs(d.leaf[0][1] - d.leaf[1][1]) < 0.1 else Orientation.VERTICAL
             
             if orient == Orientation.HORIZONTAL:
-                # Door is on horizontal wall
                 ox = min(d.leaf[0][0], d.leaf[1][0])
-                oy = hinge[1]
-                vy = open_tip[1] - hinge[1]
-                swing = "up" if vy < 0 else "down"
-                hinge_at_start = abs(hinge[0] - ox) < 0.1
+                oy = d.leaf[0][1]
+                # Is the door on the top or bottom wall of the room?
+                # If oy is closer to rect.y (top), it's on the top wall.
+                is_top_wall = abs(oy - hr.rect.y) < abs(oy - hr.rect.bottom)
+                # It should swing INTO the room: if top wall, swing down. If bottom wall, swing up.
+                swing = "down" if is_top_wall else "up"
+                
+                # Should hinge be on the left (start) or right (end) of the gap?
+                # Hinge should be closer to the nearest perpendicular wall to open against it.
+                dist_left = abs(ox - hr.rect.x)
+                dist_right = abs((ox + d_len) - hr.rect.right)
+                hinge_at_start = dist_left <= dist_right
             else:
-                # Door is on vertical wall
-                ox = hinge[0]
+                ox = d.leaf[0][0]
                 oy = min(d.leaf[0][1], d.leaf[1][1])
-                vx = open_tip[0] - hinge[0]
-                swing = "left" if vx < 0 else "right"
-                hinge_at_start = abs(hinge[1] - oy) < 0.1
+                # Is the door on the left or right wall?
+                is_left_wall = abs(ox - hr.rect.x) < abs(ox - hr.rect.right)
+                # It should swing INTO the room: if left wall, swing right. If right wall, swing left.
+                swing = "right" if is_left_wall else "left"
+                
+                # Should hinge be on the bottom (start) or top (end) of the gap?
+                dist_bottom = abs(oy - hr.rect.y) # wait, rect.y is top!
+                dist_top = abs(oy - hr.rect.y)
+                dist_bottom = abs((oy + d_len) - hr.rect.bottom)
+                hinge_at_start = dist_top <= dist_bottom # True means hinge is at oy (which is the smaller y, i.e. closer to top)
                 
             openings.append(Opening(OpeningType.DOOR, ox, oy, d_len, orient, swing=swing, hinge_at_start=hinge_at_start))
             

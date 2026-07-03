@@ -109,7 +109,7 @@ def render_dxf_bytes(plan: FloorPlan) -> tuple[ezdxf.document.Drawing, bytes]:
                 mtext.set_location((sf.bounds.cx, sf.bounds.cy), attachment_point=5)
 
     # 1. Plot
-    _draw_rect_filled(msp, (plan.plot.x, plan.plot.y, plan.plot.width, plan.plot.height), outline_layer="PLOT_OUTLINE", fill_layer="PLOT_FILL", lineweight=35) # 0.35mm thick
+    # Removed PLOT_OUTLINE to prevent it from covering external doors
     
     # 2. Building (Removed global bounding box wall to allow organic perimeters and disconnected annexes)
 
