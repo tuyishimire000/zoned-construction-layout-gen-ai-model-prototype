@@ -10,7 +10,7 @@ from app.api.schemas import (
     ChatMessage as SchemaChatMessage,
     ReportData,
 )
-from app.nlp.extractor import extract_parameters, extract_parameters_from_history
+from app.nlp.extractor import extract_parameters, extract_parameters_from_history, generate_summary
 from app.compliance.validator import validate_project
 from app.compliance.graph_validator import validate_and_repair_graph
 from app.visualization.floorplan_generator import generate_floorplan
@@ -70,14 +70,14 @@ def chat_with_architect(request: ChatRequest, current_user: User = Depends(get_c
         tb = traceback.format_exc()
         raise HTTPException(status_code=500, detail=f"Error in layout generation: {str(e)}\n\n{tb}")
         
-    # 6. Save AI response (a summary of actions)
     floors = params_dict.get('floors') or 1
     plot_size = params_dict.get('plot_size') or 600.0
     usage = params_dict.get('usage') or 'residential'
     
-    # Use dynamic AI response if available, fallback to hardcoded string
-    ai_content = params_dict.get('response_message') 
-    if not ai_content:
+    # 6. Generate dynamic AI response
+    try:
+        ai_content = generate_summary(messages_list, params_dict, compliance_dict)
+    except Exception as e:
         ai_content = f"I've updated the layout! It's a {usage} building with {floors} floors on a {plot_size} sqm plot."
         
     ai_msg = ChatMessage(session_id=session_id, role="assistant", content=ai_content)

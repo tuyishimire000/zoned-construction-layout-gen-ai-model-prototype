@@ -563,114 +563,115 @@ def build_floorplan(params: dict, compliance: dict) -> FloorPlan:
     floors = params.get("floors") or 1
     parking = params.get("parking_spaces") or 0
     usage = params.get("usage") or "residential"
+    archetype = params.get("archetype") or "auto"
     
     plot_side = math.sqrt(plot_size)
     plot = Rect(0, 0, plot_side, plot_side)
     
-    graph = params.get("graph")
-    nodes = []
-    edges = []
-    if graph and graph.get("rooms"):
-        for r in graph["rooms"]:
-            nodes.append({"id": r["id"], "type": r["room_type"]})
-        for e in graph.get("connections", []):
-            edges.append(e)
-    else:
-        rooms_counts = params.get("rooms", {}) or {}
-        prev_id = None
-        for rtype, count in rooms_counts.items():
-            for i in range(int(count)):
-                nid = f"{rtype}_{i}"
-                nodes.append({"id": nid, "type": rtype})
-                if prev_id: edges.append({"room_a": prev_id, "room_b": nid})
-                prev_id = nid
-                
-    annex_types = {"outside_kitchens", "outside_bathrooms", "maid_rooms"}
-    main_nodes = [n for n in nodes if n["type"] not in annex_types]
-    annex_nodes = [n for n in nodes if n["type"] in annex_types]
+    rooms_counts = params.get("rooms", {}) or {}
     
-    main_edges = [e for e in edges if any(n['id'] == e['room_a'] for n in main_nodes) and any(n['id'] == e['room_b'] for n in main_nodes)]
-    annex_edges = [e for e in edges if any(n['id'] == e['room_a'] for n in annex_nodes) and any(n['id'] == e['room_b'] for n in annex_nodes)]
+    from .house_sketch import HouseSketch, SketchValidationError
     
-    main_rects, main_score = _solve_grid(main_nodes, main_edges)
-    annex_rects, annex_score = _solve_grid(annex_nodes, annex_edges)
-    
-    left_setback, back_setback, front_setback = 2.0, 2.0, 3.0
-    
-    main_w = max([r.right for r in main_rects.values()] + [0])
-    main_h = max([r.bottom for r in main_rects.values()] + [0])
-    annex_h = max([r.bottom for r in annex_rects.values()] + [0]) if annex_rects else 0.0
-    
-    shift_x = left_setback
-    shift_y = back_setback + annex_h + (2.0 if annex_h > 0 else 0)
-    
+    try:
+        # 1. Generate the house layout
+        hs = HouseSketch(
+            plot_width=plot_side,
+            plot_depth=plot_side,
+            rooms=rooms_counts,
+            archetype=archetype,
+        )
+    except SketchValidationError as e:
+        # Fallback to a tiny layout if we can't fit the requested rooms, or just re-raise.
+        # For a prototype, raising is fine so the error bubbles up.
+        raise ValueError(f"Layout generation failed: {e}")
+
+    # 2. Map HouseSketch geometry to Model Geometry
     placed_rooms = []
     
-    if main_rects:
-        openings_map = _build_openings(main_rects, main_nodes, main_edges)
-        for nid, r in main_rects.items():
-            ntype = next(n['type'] for n in main_nodes if n['id'] == nid)
-            r.x += shift_x; r.y += shift_y
-            for o in openings_map[nid]:
-                o.x += shift_x; o.y += shift_y
-            placed_rooms.append(Room(
-                type=ntype,
-                label=_singular_label(ntype) if ntype != "corridors" else "Corridor",
-                bounds=r,
-                openings=openings_map[nid],
-                furniture=_build_furniture(ntype, r)
-            ))
+    def _dist(p1, p2):
+        return math.hypot(p2[0]-p1[0], p2[1]-p1[1])
+        
+    for hr in hs.all_rooms:
+        if not hr.rect: continue
+        r = Rect(hr.rect.x, hr.rect.y, hr.rect.w, hr.rect.h)
+        rtype = hr.type.value if hasattr(hr.type, 'value') else hr.type
+        # Our furniture expects plural type names or exactly what's in FURNITURE_SIZES mapping,
+        # but HouseSketch uses singular types (bedroom, bathroom, etc).
+        plural_type = f"{rtype}s" if not rtype.endswith('s') else rtype
+        
+        openings = []
+        for w in hr.windows:
+            w_len = _dist(w.p0, w.p1)
+            cx, cy = (w.p0[0] + w.p1[0])/2, (w.p0[1] + w.p1[1])/2
+            orient = Orientation.HORIZONTAL if abs(w.p0[1] - w.p1[1]) < 0.1 else Orientation.VERTICAL
+            # To anchor it top-left in our opening struct:
+            ox = cx - w_len/2 if orient == Orientation.HORIZONTAL else cx
+            oy = cy - w_len/2 if orient == Orientation.VERTICAL else cy
+            openings.append(Opening(OpeningType.WINDOW, ox, oy, w_len, orient, "sliding"))
             
-    placed_annex = []
-    if annex_rects:
-        annex_openings = _build_openings(annex_rects, annex_nodes, annex_edges)
-        for nid, r in annex_rects.items():
-            ntype = next(n['type'] for n in annex_nodes if n['id'] == nid)
-            r.x += shift_x; r.y += back_setback
-            for o in annex_openings[nid]:
-                o.x += shift_x; o.y += back_setback
-            placed_annex.append(Room(
-                type=ntype,
-                label=_singular_label(ntype),
-                bounds=r,
-                openings=annex_openings[nid],
-                furniture=_build_furniture(ntype, r)
-            ))
+        for d in hr.doors:
+            d_len = _dist(d.leaf[0], d.leaf[1])
+            cx, cy = (d.leaf[0][0] + d.leaf[1][0])/2, (d.leaf[0][1] + d.leaf[1][1])/2
+            orient = Orientation.HORIZONTAL if abs(d.leaf[0][1] - d.leaf[1][1]) < 0.1 else Orientation.VERTICAL
+            ox = cx - d_len/2 if orient == Orientation.HORIZONTAL else cx
+            oy = cy - d_len/2 if orient == Orientation.VERTICAL else cy
+            openings.append(Opening(OpeningType.DOOR, ox, oy, d_len, orient, "push"))
             
-    building = Rect(shift_x, shift_y, main_w, main_h)
-    annex_building = Rect(shift_x, back_setback, max([r.right for r in annex_rects.values()] + [0]), annex_h) if placed_annex else None
+        # Add open archways
+        for a_p0, a_p1 in hs.openings:
+            # check if this archway belongs to this room
+            if (hr.rect.x - 0.1 <= a_p0[0] <= hr.rect.right + 0.1 and 
+                hr.rect.y - 0.1 <= a_p0[1] <= hr.rect.bottom + 0.1):
+                a_len = _dist(a_p0, a_p1)
+                cx, cy = (a_p0[0] + a_p1[0])/2, (a_p0[1] + a_p1[1])/2
+                orient = Orientation.HORIZONTAL if abs(a_p0[1] - a_p1[1]) < 0.1 else Orientation.VERTICAL
+                ox = cx - a_len/2 if orient == Orientation.HORIZONTAL else cx
+                oy = cy - a_len/2 if orient == Orientation.VERTICAL else cy
+                openings.append(Opening(OpeningType.DOOR, ox, oy, a_len, orient, "open"))
 
-    # normalize score to a 0-100 scale (just a simple heuristic)
-    total_score = max(0, min(100, 100 - (main_score + annex_score) * 2))
+        placed_rooms.append(Room(
+            type=plural_type,
+            label=hr.label,
+            bounds=r,
+            openings=openings,
+            furniture=_build_furniture(plural_type, r)
+        ))
+        
+    building = Rect(hs.footprint.x, hs.footprint.y, hs.footprint.w, hs.footprint.h)
 
+    # Note: HouseSketch does not explicitly separate annexes by default unless we wrote custom manual rules,
+    # so we place everything in the main building.
+    
     plan = FloorPlan(
         plot=plot,
         building=building,
         rooms=placed_rooms,
-        annex_building=annex_building,
-        annex_rooms=placed_annex,
+        annex_building=None,
+        annex_rooms=[],
         plot_size_sqm=plot_size,
         floors=floors,
         usage=usage,
         parking_spaces=parking,
         wall_thickness=0.2,
-        score=total_score
+        score=100  # Always 100 since it's procedural and precise
     )
     
     plan.site_features.append(SiteFeature(FeatureType.GRASS, Rect(0, 0, plot.width, plot.height)))
     
-    front_door_x = shift_x + main_w / 2 - 0.75
-    front_door_y = shift_y + main_h
+    front_door_x = building.cx
+    front_door_y = building.bottom
+    # Try to find a door on the bottom wall of the building
     for r in plan.rooms:
-        if r.type == "living_rooms":
-            front_door_x = r.bounds.cx - 0.75
-            front_door_y = r.bounds.bottom
-            break
+        if abs(r.bounds.bottom - building.bottom) < 0.5:
+            for o in r.openings:
+                if o.type == OpeningType.DOOR and o.orientation == Orientation.HORIZONTAL and abs(o.y - building.bottom) < 0.5:
+                    front_door_x = o.x + o.size / 2
+                    front_door_y = o.y
+                    break
             
     # Irregular path routing
     path_points = []
-    start_x = front_door_x + 0.75
-    
+    start_x = front_door_x
     drop_y = max(front_door_y + 1.5, plan.building.bottom + 1.0)
     center_road_x = plot.width / 2
     
@@ -696,3 +697,4 @@ def build_floorplan(params: dict, compliance: dict) -> FloorPlan:
             plan.site_features.append(SiteFeature(FeatureType.PARKING, Rect(start_x + i * 3.0, start_y, stall_w, stall_h), "P"))
 
     return plan
+

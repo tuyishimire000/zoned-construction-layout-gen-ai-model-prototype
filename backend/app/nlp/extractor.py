@@ -18,27 +18,13 @@ class RoomCounts(BaseModel):
     maid_rooms: int = Field(default=0, description="Maid or staff rooms in the annex")
     corridors: int = Field(default=0, description="Connecting hallways")
 
-class RoomInstance(BaseModel):
-    id: str = Field(description="Unique ID, e.g., 'bedroom_1'")
-    room_type: str = Field(description="Must exactly match a field in RoomCounts, e.g., 'bedrooms', 'corridors'")
-
-class AdjacencyEdge(BaseModel):
-    room_a: str = Field(description="ID of first room")
-    room_b: str = Field(description="ID of second room")
-    weight: int = Field(default=1, description="Importance of the connection (1 to 10)")
-
-class LayoutGraph(BaseModel):
-    rooms: list[RoomInstance] = Field(description="All individual rooms in the house, including inserted corridors.")
-    connections: list[AdjacencyEdge] = Field(description="Pairs of rooms that share a door/wall. Insert and use 'corridor' nodes to connect private rooms together.")
-
 class ExtractorSchema(BaseModel):
     plot_size: float | None = Field(default=600.0, description="Plot size in sqm. Default to 600 if not specified.")
     floors: int | None = Field(default=1, description="Number of floors. Default to 1.")
     usage: str | None = Field(default="residential", description="Usage type: residential, commercial, industrial, or mixed-use.")
     parking_spaces: int | None = Field(default=0, description="Number of parking spaces.")
-    response_message: str = Field(description="A friendly, conversational, and dynamic natural language response to the user. It should summarize the latest updates made to the floor plan based on their request. Make it read naturally, as if you are a human architect presenting the updated design.")
     rooms: RoomCounts
-    graph: LayoutGraph = Field(description="Topological map of how the rooms physically connect.")
+    archetype: str | None = Field(default="auto", description="Preferred layout archetype: 'auto', 'central_corridor', 'single_loaded', 'courtyard', or 'l_shape'. Defaults to auto.")
 
 def extract_parameters_from_history(messages: list[dict]) -> Dict[str, Any]:
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -58,16 +44,13 @@ def extract_parameters_from_history(messages: list[dict]) -> Dict[str, Any]:
         
     prompt = f"""
     You are an expert architectural assistant. You are participating in a conversation with a user about a building design.
-    Based on the ENTIRE conversation history below, extract the CURRENT, FINAL building parameters, room counts, and generate an Adjacency Graph reflecting all of the user's latest updates and requests.
+    Based on the ENTIRE conversation history below, extract the CURRENT, FINAL building parameters, room counts, and preferred layout style.
     
-    Rules for the Adjacency Graph:
-    1. For every room counted, create exactly that many RoomInstances with unique IDs.
-    2. Define connections between rooms that should be adjacent.
-    3. IMPORTANT: Assign a `weight` (1 to 10) to every connection. 10 means the connection is extremely critical (e.g., Living-Kitchen), 1 means it's a minor or optional connection.
-    4. IMPORTANT: Unless the user specifically requests an open layout or NO hallways, do NOT connect bedrooms directly to living rooms or kitchens. Create "corridor" nodes to act as central spines.
-    5. Provide different layout styles based on clues in the prompt.
-    6. Always ensure standard rooms exist even if the user only specifies a subset (e.g., if they say "2-bedroom home", infer there must be a living room and a kitchen).
-    7. If the user asks for bedrooms or living spaces in a separate annex, guest house, or outdoor area, you MUST classify those specific rooms as "maid_rooms" so the system knows to place them in the separate annex building.
+    Rules for Extraction:
+    1. Count the number of each type of room requested by the user.
+    2. If the user mentions a layout style like 'U-shaped' (courtyard), 'L-shaped' (l_shape), 'narrow' (single_loaded), or 'standard' (central_corridor), set the archetype appropriately. Otherwise, leave it as 'auto'.
+    3. Always ensure standard rooms exist even if the user only specifies a subset (e.g., if they say "2-bedroom home", infer there must be a living room and a kitchen).
+    4. If the user asks for bedrooms or living spaces in a separate annex, guest house, or outdoor area, classify those specific rooms as "maid_rooms", "outside_kitchens", or "outside_bathrooms".
     
     CONVERSATION HISTORY:
     {history_text}
@@ -92,3 +75,43 @@ def extract_parameters_from_history(messages: list[dict]) -> Dict[str, Any]:
 def extract_parameters(description: str) -> Dict[str, Any]:
     # Backward compatibility for the /analyze endpoint
     return extract_parameters_from_history([{"role": "user", "content": description}])
+
+def generate_summary(messages: list[dict], params: dict, compliance: dict) -> str:
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return "I've updated the layout based on your request."
+        
+    from google import genai
+    from google.genai import types
+    
+    client = genai.Client()
+    
+    history_text = ""
+    for msg in messages:
+        role = "User" if msg["role"] == "user" else "Assistant"
+        history_text += f"{role}: {msg['content']}\n\n"
+        
+    prompt = f"""
+    You are an expert architectural assistant. You just generated a new procedural floor plan based on the user's latest request.
+    
+    Here is the conversation history so far:
+    {history_text}
+    
+    Here is the final layout specification that was just generated by the architectural engine:
+    {json.dumps(params, indent=2)}
+    
+    Write a short, friendly, conversational response (1-3 sentences) to the user summarizing what you just built for them.
+    Highlight any specific architectural style or archetype (e.g., L-shaped, central corridor) if one was chosen, and confirm the room counts. 
+    Make it read naturally, as if you are presenting the updated design.
+    """
+    
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            temperature=0.4,
+        ),
+    )
+    
+    return response.text.strip()
+
