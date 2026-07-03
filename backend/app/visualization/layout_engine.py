@@ -611,11 +611,27 @@ def build_floorplan(params: dict, compliance: dict) -> FloorPlan:
             
         for d in hr.doors:
             d_len = _dist(d.leaf[0], d.leaf[1])
-            cx, cy = (d.leaf[0][0] + d.leaf[1][0])/2, (d.leaf[0][1] + d.leaf[1][1])/2
+            hinge = d.leaf[0]
+            open_tip = d.arc[-1] if d.arc else d.leaf[1]
+            
             orient = Orientation.HORIZONTAL if abs(d.leaf[0][1] - d.leaf[1][1]) < 0.1 else Orientation.VERTICAL
-            ox = cx - d_len/2 if orient == Orientation.HORIZONTAL else cx
-            oy = cy - d_len/2 if orient == Orientation.VERTICAL else cy
-            openings.append(Opening(OpeningType.DOOR, ox, oy, d_len, orient, "push"))
+            
+            if orient == Orientation.HORIZONTAL:
+                # Door is on horizontal wall
+                ox = min(d.leaf[0][0], d.leaf[1][0])
+                oy = hinge[1]
+                vy = open_tip[1] - hinge[1]
+                swing = "up" if vy < 0 else "down"
+                hinge_at_start = abs(hinge[0] - ox) < 0.1
+            else:
+                # Door is on vertical wall
+                ox = hinge[0]
+                oy = min(d.leaf[0][1], d.leaf[1][1])
+                vx = open_tip[0] - hinge[0]
+                swing = "left" if vx < 0 else "right"
+                hinge_at_start = abs(hinge[1] - oy) < 0.1
+                
+            openings.append(Opening(OpeningType.DOOR, ox, oy, d_len, orient, swing=swing, hinge_at_start=hinge_at_start))
             
         # Add open archways
         for a_p0, a_p1 in hs.openings:
