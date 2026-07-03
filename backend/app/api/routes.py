@@ -153,10 +153,10 @@ def get_session(session_id: str, current_user: User = Depends(get_optional_user)
         compliance_dict = validate_project(params_dict)
         score = 0.0
         
-        # generate a new floorplan if we have graph
+        # generate a new floorplan
         floor_plan_b64 = ""
         dxf_b64 = None
-        if params_dict.get("graph"):
+        if params_dict:
             floor_plan_b64, dxf_b64, score = generate_floorplan(params_dict, compliance_dict)
             
         analysis_resp = AnalysisResponse(
