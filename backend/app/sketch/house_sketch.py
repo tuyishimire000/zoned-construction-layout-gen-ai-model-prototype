@@ -45,6 +45,8 @@ class RoomType(str, Enum):
     DINING = "dining"
     OFFICE = "office"
     CORRIDOR = "corridor"
+    VERANDA = "veranda"   # barza / porch — semi-open front space
+    STORE = "store"       # pantry / storage
 
 
 # Rooms that form the full-width public band at the front.
@@ -59,6 +61,8 @@ ROOM_AREA = {
     RoomType.DINING: 12.0,
     RoomType.OFFICE: 10.0,
     RoomType.CORRIDOR: 6.0,
+    RoomType.VERANDA: 8.0,
+    RoomType.STORE: 3.0,
 }
 ROOM_MIN_SIDE = {
     RoomType.BEDROOM: 2.6,
@@ -68,10 +72,15 @@ ROOM_MIN_SIDE = {
     RoomType.DINING: 2.4,
     RoomType.OFFICE: 2.0,
     RoomType.CORRIDOR: 1.0,
+    RoomType.VERANDA: 1.2,
+    RoomType.STORE: 0.9,
 }
-# Professional look: rooms are white; circulation is a faint grey.
+# Professional look: rooms are white; circulation is a faint grey, the veranda a
+# lighter grey (semi-open), the store a faint neutral.
 ROOM_COLOR = {rt: "#FFFFFF" for rt in RoomType}
 ROOM_COLOR[RoomType.CORRIDOR] = "#F2F3F5"
+ROOM_COLOR[RoomType.VERANDA] = "#EDEFF1"
+ROOM_COLOR[RoomType.STORE] = "#F5F3EE"
 
 # Drawing convention / legend. Single source of truth for the colour language.
 #   wall states : added (red), removed (blue), remaining (black)
@@ -112,6 +121,16 @@ _ALIASES = {
     "hall": RoomType.CORRIDOR,
     "hallway": RoomType.CORRIDOR,
     "passage": RoomType.CORRIDOR,
+    "veranda": RoomType.VERANDA,
+    "verandah": RoomType.VERANDA,
+    "barza": RoomType.VERANDA,
+    "porch": RoomType.VERANDA,
+    "balcony": RoomType.VERANDA,
+    "store": RoomType.STORE,
+    "stores": RoomType.STORE,
+    "pantry": RoomType.STORE,
+    "storage": RoomType.STORE,
+    "closet": RoomType.STORE,
 }
 
 
@@ -374,6 +393,24 @@ class HouseSketch:
         depth = width * ratio
         return cls(width, depth, rooms, **kw)
 
+    @classmethod
+    def fit(cls, rooms, *, setback: float = 3.0, **kw):
+        """Build with the plot AUTO-SIZED to the (manually placed) rooms.
+
+        You place rooms by position / relative direction and don't compute the
+        plot at all: the building is measured, then the plot is set to
+        building + a `setback` yard on every side. Requires manual placement.
+        """
+        probe = cls(10_000.0, 10_000.0, rooms, setback=setback, **kw)
+        if not probe.manual:
+            raise SketchValidationError(
+                "fit() needs rooms placed by position or relative direction "
+                "(east_of / west_of / north_of / south_of)."
+            )
+        bb = probe._rooms_bbox()
+        pad = 2 * setback + 1e-3
+        return cls(bb.w + pad, bb.h + pad, rooms, setback=setback, **kw)
+
     @staticmethod
     def _coerce_specs(rooms) -> List["RoomSpec"]:
         """Normalize any accepted `rooms` form into a list of RoomSpec."""
@@ -472,14 +509,30 @@ class HouseSketch:
                 )
 
         # Adjacency references must resolve to a known room id or label.
-        ids = {r.id for r in self.rooms}
-        names = {r.label for r in self.rooms}
+        # Every reference (adjacent_to + relative anchors) must resolve.
+        valid_ids = sorted(r.id for r in self.rooms)
         for r in self.rooms:
-            for ref in r.spec.adjacent_to if r.spec else []:
-                if ref not in ids and ref not in names:
+            refs = list(r.spec.adjacent_to) if r.spec else []
+            anchor_id, _ = r.spec.anchor() if r.spec else (None, None)
+            if anchor_id:
+                refs.append(anchor_id)
+            for ref in refs:
+                if self._resolve(ref) is not None:
+                    continue
+                try:
+                    rtype = _normalize(ref)
+                    n = sum(1 for x in self.rooms if x.type == rtype)
+                except SketchValidationError:
+                    n = 0
+                if n > 1:
                     raise SketchValidationError(
-                        f"{r.label!r} lists an unknown adjacent room {ref!r}."
+                        f"{r.label!r} references {ref!r}, but there are {n} "
+                        f"{ref} rooms — use a specific id instead. Ids: {valid_ids}"
                     )
+                raise SketchValidationError(
+                    f"{r.label!r} references unknown room {ref!r}. "
+                    f"Known ids: {valid_ids}"
+                )
 
     # -- layout dispatch ---------------------------------------------------- #
 
@@ -499,10 +552,21 @@ class HouseSketch:
         self._place_windows()
 
     def _resolve(self, ref: str) -> Optional[Room]:
+        """Find a room by id, label, or (when unambiguous) room type.
+
+        So `adjacent_to=["dining"]` resolves to the single dining room even if its
+        id is "din". A type reference that matches several rooms (e.g. "bedroom"
+        with three bedrooms) is ambiguous and is left for the caller to report.
+        """
         for r in self.rooms:
             if r.id == ref or r.label == ref:
                 return r
-        return None
+        try:
+            rtype = _normalize(ref)
+        except SketchValidationError:
+            return None
+        matches = [r for r in self.rooms if r.type == rtype]
+        return matches[0] if len(matches) == 1 else None
 
     def neighbors_of(self, room_id: str) -> List[str]:
         """Ids of the rooms that share a wall with the given room."""
@@ -622,6 +686,19 @@ class HouseSketch:
                 f"cycle or an anchor that is itself unplaced."
             )
 
+        # Relative directions like north_of / west_of can push rooms above or
+        # left of the origin. Shift the whole layout back so nothing sits past
+        # the top-left of the buildable area (a genuinely too-big plan is caught
+        # afterwards by the footprint check).
+        rects = [r.rect for r in self.rooms if r.rect]
+        if rects:
+            dx = max(0.0, fb.x - min(rc.x for rc in rects))
+            dy = max(0.0, fb.y - min(rc.y for rc in rects))
+            if dx or dy:
+                for rc in rects:
+                    rc.x += dx
+                    rc.y += dy
+
     def _layout_manual(self) -> None:
         """Place rooms (by explicit position OR relative direction), then openings.
 
@@ -632,6 +709,7 @@ class HouseSketch:
         self._resolve_positions()
 
         # Inside the footprint?
+        bb = self._rooms_bbox()
         for r in self.rooms:
             rc = r.rect
             if (
@@ -641,8 +719,11 @@ class HouseSketch:
                 or rc.bottom > fb.bottom + 1e-6
             ):
                 raise SketchValidationError(
-                    f"{r.label!r} at {r.spec.position} ({rc.w}x{rc.h} m) extends "
-                    f"outside the {fb.w:.1f}x{fb.h:.1f} m building footprint."
+                    f"{r.label!r} at ({rc.x - fb.x:.1f}, {rc.y - fb.y:.1f}) "
+                    f"{rc.w:.1f}x{rc.h:.1f} m spills outside the {fb.w:.1f}x{fb.h:.1f} m "
+                    f"buildable area. The whole layout spans {bb.w:.1f}x{bb.h:.1f} m — "
+                    f"enlarge the plot (currently {self.plot.w:.0f}x{self.plot.h:.0f} m) "
+                    f"or reduce the setback ({self.setback:.0f} m)."
                 )
 
         # Overlapping?
