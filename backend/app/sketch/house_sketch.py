@@ -191,6 +191,17 @@ class Window:
 
 
 @dataclass
+class Furniture:
+    """A piece of furniture within a room. `kind` selects the drawn glyph;
+    `bounds` is its footprint in meters; `facing` ("up"/"down"/"left"/"right")
+    orients direction-sensitive glyphs (bed headboard, sofa back, etc.)."""
+
+    kind: str
+    bounds: Rect
+    facing: str = "up"
+
+
+@dataclass
 class Room:
     """A room after layout: its computed geometry plus a link to its spec."""
 
@@ -202,6 +213,7 @@ class Room:
     door_walls: Set[str] = field(default_factory=set)
     id: str = ""
     spec: Optional["RoomSpec"] = None
+    furniture: List[Furniture] = field(default_factory=list)
 
 
 class SketchValidationError(ValueError):
@@ -341,8 +353,9 @@ class HouseSketch:
         *,
         setback: float = 3.0,
         circulation: float = 1.12,
-        wall_thickness: float = 0.3,
+        wall_thickness: float = 0.2,
         title: str = "PROPOSED HOUSE SKETCH",
+        furniture: bool = True,
     ):
         if plot_width <= 0 or plot_depth <= 0:
             raise SketchValidationError("Plot dimensions must be positive.")
@@ -357,6 +370,7 @@ class HouseSketch:
         self.circulation = float(circulation)
         self.wall = float(wall_thickness)
         self.title = title
+        self.show_furniture = bool(furniture)
 
         self.footprint = Rect(
             setback, setback, plot_width - 2 * setback, plot_depth - 2 * setback
@@ -550,6 +564,9 @@ class HouseSketch:
         # Windows are placed last: they sit on exterior (non-shared) wall edges,
         # which we only know once every room is placed and adjacency is computed.
         self._place_windows()
+        if self.show_furniture:
+            for r in self.all_rooms:
+                r.furniture = self._furnish_room(r)
 
     def _resolve(self, ref: str) -> Optional[Room]:
         """Find a room by id, label, or (when unambiguous) room type.
@@ -1142,6 +1159,63 @@ class HouseSketch:
         y1 = max(r.bottom for r in rects)
         return Rect(x0, y0, x1 - x0, y1 - y0)
 
+    # -- furniture placement ------------------------------------------------- #
+
+    def _furnish_room(self, room: Room) -> List[Furniture]:
+        """Lay out sensible furniture for a room, against its walls in meters."""
+        r = room.rect
+        if r is None:
+            return []
+        out: List[Furniture] = []
+        m = 0.2  # gap from walls
+
+        def add(kind, x, y, w, h, facing="up"):
+            if w > 0.05 and h > 0.05:
+                out.append(Furniture(kind, Rect(x, y, w, h), facing))
+
+        rt = room.type
+        if rt == RoomType.BEDROOM:
+            bw, bh = (1.5, 2.0) if (r.w >= 3.0 and r.h >= 2.6) else (0.95, 1.9)
+            if r.w >= bw + 2 * m and r.h >= bh + 2 * m:
+                add("bed", r.cx - bw / 2, r.y + m, bw, bh, "up")  # headboard on top wall
+            if r.h >= bh + 1.0:  # wardrobe on the bottom wall
+                add("wardrobe", r.x + m, r.bottom - m - 0.6,
+                    min(2.0, r.w - 2 * m), 0.6, "down")
+        elif rt == RoomType.BATHROOM:
+            add("toilet", r.x + m, r.bottom - m - 0.65, 0.4, 0.65, "up")
+            add("basin", r.x + m, r.y + m, 0.55, 0.4, "down")
+            if r.w >= 1.7 and r.h >= 1.9:
+                add("shower", r.right - m - 0.85, r.bottom - m - 0.85, 0.85, 0.85)
+        elif rt == RoomType.KITCHEN:
+            add("counter", r.x + m, r.y + m, r.w - 2 * m, 0.55, "down")   # top run
+            add("counter", r.x + m, r.y + m, 0.55, r.h - 2 * m, "right")  # left run (L)
+            add("stove", r.cx - 0.3, r.y + m, 0.6, 0.55)
+            add("sink", r.x + m, r.cy - 0.25, 0.55, 0.5)
+            add("fridge", r.right - m - 0.6, r.bottom - m - 0.6, 0.6, 0.6)
+        elif rt == RoomType.LIVING_ROOM:
+            sw = min(2.4, r.w - 2 * m)
+            add("sofa", r.cx - sw / 2, r.bottom - m - 0.85, sw, 0.85, "up")
+            add("coffee_table", r.cx - 0.5, r.cy - 0.25, 1.0, 0.5)
+            add("tv", r.cx - 0.6, r.y + m, 1.2, 0.35, "down")
+        elif rt == RoomType.DINING:
+            tw = min(1.8, r.w - 1.4)
+            th = min(1.0, r.h - 1.4)
+            if tw > 0.6 and th > 0.4:
+                add("table", r.cx - tw / 2, r.cy - th / 2, tw, th)
+                for cx in (r.cx - tw / 4, r.cx + tw / 4):  # chairs top + bottom
+                    add("chair", cx - 0.22, r.cy - th / 2 - 0.5, 0.44, 0.44)
+                    add("chair", cx - 0.22, r.cy + th / 2 + 0.06, 0.44, 0.44)
+        elif rt == RoomType.OFFICE:
+            add("desk", r.x + m, r.y + m, min(1.3, r.w - 2 * m), 0.65, "down")
+            add("chair", r.x + m + 0.4, r.y + m + 0.85, 0.44, 0.44)
+        elif rt == RoomType.STORE:
+            add("shelf", r.x + m, r.y + m, r.w - 2 * m, 0.4, "down")
+            if r.h >= 1.2:
+                add("shelf", r.x + m, r.bottom - m - 0.4, r.w - 2 * m, 0.4, "up")
+        elif rt == RoomType.VERANDA:
+            add("bench", r.x + m, r.bottom - m - 0.45, min(1.8, r.w - 2 * m), 0.45, "up")
+        return out
+
     @staticmethod
     def _make_door(hinge, wall, swing, w) -> Door:
         a0 = math.atan2(wall[1], wall[0])
@@ -1173,12 +1247,13 @@ class HouseSketch:
     C_DOOR = LEGEND["remaining_wall"]  # black
     C_LABEL = "#2B333B"
     C_DIM = "#9AA3AD"
+    C_FURN = "#8A929B"  # thin grey for furniture
 
     def _draw(self, surf: "_Surface", t: "_Transform") -> None:
         plot = self.plot
         # Solid wall bands: exterior heavier than interior partitions.
-        wall_px = max(6, int(self.wall * t.scale))
-        part_px = max(4, int(self.wall * t.scale * 0.7))
+        wall_px = max(4, int(self.wall * t.scale))
+        part_px = max(3, int(self.wall * t.scale * 0.7))
 
         # Property boundary (lot) — light fill, thin line, generous yard around.
         surf.rect(*t.box(plot), fill=self.C_LOT, stroke=self.C_LOT_LINE, width=2)
@@ -1215,6 +1290,11 @@ class HouseSketch:
                     *t.pt(d.leaf[0]), *t.pt(d.leaf[1]), stroke=self.C_DOOR, width=4
                 )
                 surf.polyline([t.pt(p) for p in d.arc], stroke=self.C_DOOR, width=1)
+
+        # Furniture (thin grey, on top of the floor).
+        for r in self.all_rooms:
+            for item in r.furniture:
+                self._draw_furniture(surf, t, item)
 
         # Labels.
         for r in self.all_rooms:
@@ -1255,6 +1335,67 @@ class HouseSketch:
         p0, p1 = t.pt(w.p0), t.pt(w.p1)
         surf.line(p0[0], p0[1], p1[0], p1[1], stroke=self.C_WINDOW, width=wall_px)
         surf.line(p0[0], p0[1], p1[0], p1[1], stroke=self.C_WALL, width=max(1, wall_px // 4))
+
+    def _draw_furniture(self, surf, t, f: Furniture) -> None:
+        """Draw one furniture glyph in thin grey via the surface primitives."""
+        x0, y0, x1, y1 = t.box(f.bounds)
+        w, h = x1 - x0, y1 - y0
+        c = self.C_FURN
+        k = f.kind
+
+        def rect(a, b, cc, dd, **kw):
+            surf.rect(a, b, cc, dd, stroke=c, width=1, **kw)
+
+        if k == "bed":
+            rect(x0, y0, x1, y1)                                   # mattress
+            ph = h * 0.16                                          # pillows on headboard side
+            if f.facing == "up":
+                surf.rect(x0 + 2, y0 + 2, x1 - 2, y0 + ph, stroke=c, width=1)
+                surf.line(x0 + 2, y0 + ph + 3, x1 - 2, y0 + ph + 3, stroke=c, width=1)
+            else:
+                surf.rect(x0 + 2, y1 - ph, x1 - 2, y1 - 2, stroke=c, width=1)
+        elif k in ("wardrobe", "shelf"):
+            rect(x0, y0, x1, y1)
+            if w > h:                                              # shelf/hang lines
+                surf.line((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, stroke=c, width=1)
+            else:
+                surf.line(x0, (y0 + y1) / 2, x1, (y0 + y1) / 2, stroke=c, width=1)
+        elif k == "toilet":
+            surf.rect(x0 + w * 0.2, y0, x0 + w * 0.8, y0 + h * 0.25, stroke=c, width=1)  # cistern
+            surf.ellipse(x0, y0 + h * 0.25, x1, y1, stroke=c, width=1)                    # bowl
+        elif k in ("basin", "sink"):
+            rect(x0, y0, x1, y1)
+            surf.ellipse(x0 + 2, y0 + 2, x1 - 2, y1 - 2, stroke=c, width=1)
+        elif k == "shower":
+            rect(x0, y0, x1, y1)
+            surf.line(x0, y0, x1, y1, stroke=c, width=1)          # drain cross
+            surf.line(x1, y0, x0, y1, stroke=c, width=1)
+        elif k == "bench":
+            rect(x0, y0, x1, y1)
+        elif k == "counter":
+            rect(x0, y0, x1, y1)
+        elif k == "stove":
+            rect(x0, y0, x1, y1)
+            for ex in (0.3, 0.7):                                 # 4 burners
+                for ey in (0.3, 0.7):
+                    cx, cy = x0 + w * ex, y0 + h * ey
+                    surf.ellipse(cx - 3, cy - 3, cx + 3, cy + 3, stroke=c, width=1)
+        elif k == "fridge":
+            rect(x0, y0, x1, y1)
+            surf.line(x0, y0 + h * 0.5, x1, y0 + h * 0.5, stroke=c, width=1)
+        elif k == "sofa":
+            rect(x0, y0, x1, y1)                                   # seat
+            back = h * 0.28                                        # backrest on facing side
+            if f.facing == "up":
+                surf.rect(x0, y1 - back, x1, y1, stroke=c, width=1)
+            else:
+                surf.rect(x0, y0, x1, y0 + back, stroke=c, width=1)
+        elif k in ("coffee_table", "table", "desk", "chair"):
+            rect(x0, y0, x1, y1)
+        elif k == "tv":
+            surf.rect(x0, y0, x1, y0 + max(3, h * 0.5), fill=c, stroke=c, width=1)
+        else:
+            rect(x0, y0, x1, y1)
 
     def _erase(self, surf, t, a, b, wall_px) -> None:
         half = wall_px * 0.7 + 1
