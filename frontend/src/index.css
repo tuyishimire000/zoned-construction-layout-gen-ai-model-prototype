@@ -45,6 +45,7 @@ body{
   padding:28px 22px;
   display:flex;
   flex-direction:column;
+  min-height: 0;
 }
 
 .mobile-header { display: none; }
@@ -196,7 +197,7 @@ body{
 .btn-signout:hover{border-color:#a85b4f;color:#d98b7f;}
 
 /* ---------- Main ---------- */
-.main{padding:40px 48px 48px; max-height: 100vh; overflow-y: auto;}
+.main{padding:40px 48px 48px; max-height: 100vh; min-height: 0; overflow-y: auto;}
 .hero{
   display:flex;
   align-items:flex-start;
