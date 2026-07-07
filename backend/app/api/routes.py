@@ -10,7 +10,7 @@ from app.api.schemas import (
     ChatMessage as SchemaChatMessage,
     ReportData,
 )
-from app.nlp.extractor import extract_parameters, extract_parameters_from_history, generate_summary
+from app.nlp.extractor import extract_parameters, extract_parameters_from_history, generate_summary, generate_title
 from app.compliance.validator import validate_project
 from app.compliance.graph_validator import validate_and_repair_graph
 from app.visualization.floorplan_generator import generate_floorplan
@@ -33,7 +33,8 @@ def chat_with_architect(request: ChatRequest, current_user: User = Depends(get_c
             if not chat_session or chat_session.user_id != current_user.id:
                 raise HTTPException(status_code=404, detail="Session not found")
         else:
-            chat_session = ChatSession(user_id=current_user.id)
+            new_title = generate_title(request.message)
+            chat_session = ChatSession(user_id=current_user.id, title=new_title)
             db.add(chat_session)
             db.commit()
             db.refresh(chat_session)
@@ -47,16 +48,15 @@ def chat_with_architect(request: ChatRequest, current_user: User = Depends(get_c
         # 3. Retrieve full history
         history = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp).all()
     except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        raise HTTPException(status_code=500, detail=f"Database or route error: {str(e)}\n{tb}")
+        raise HTTPException(status_code=500, detail=f"I'm having trouble connecting to my database right now to retrieve your chat history. Please try again in a moment. Error: {str(e)}")
     messages_list = [{"role": msg.role, "content": msg.content} for msg in history]
     
     # 4. Generate parameters from history
     try:
         params_dict = extract_parameters_from_history(messages_list)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error in NLP extraction: {str(e)}")
+        friendly_error = f"I'm having a bit of trouble understanding the architectural constraints from that prompt. Could you try rephrasing your requirements? Error: {str(e)}"
+        raise HTTPException(status_code=500, detail=friendly_error)
         
     # 5. Generate floor plan
     try:
@@ -66,9 +66,9 @@ def chat_with_architect(request: ChatRequest, current_user: User = Depends(get_c
             compliance_dict["recommendations"].extend(ai_fixes)
         img_data, dxf_data, score = generate_floorplan(params_dict, compliance_dict, 'png')
     except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        raise HTTPException(status_code=500, detail=f"Error in layout generation: {str(e)}\n\n{tb}")
+        # Instead of returning a raw traceback, provide a user-friendly error message
+        friendly_error = f"I'm sorry, I couldn't generate the layout based on those constraints. Please try adjusting the room sizes or changing the layout description. (Error detail: {str(e)})"
+        raise HTTPException(status_code=500, detail=friendly_error)
         
     floors = params_dict.get('floors') or 1
     plot_size = params_dict.get('plot_size') or 600.0
@@ -107,6 +107,7 @@ def chat_with_architect(request: ChatRequest, current_user: User = Depends(get_c
     
     return ChatResponse(
         session_id=session_id,
+        title=chat_session.title,
         messages=schema_messages,
         analysis=analysis,
         is_owner=True,
@@ -116,7 +117,7 @@ def chat_with_architect(request: ChatRequest, current_user: User = Depends(get_c
 @router.get("/sessions")
 def get_user_sessions(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     sessions = db.query(ChatSession).filter(ChatSession.user_id == current_user.id).order_by(ChatSession.updated_at.desc()).all()
-    return [{"id": s.id, "created_at": s.created_at, "updated_at": s.updated_at} for s in sessions]
+    return [{"id": s.id, "title": s.title or "New Project", "created_at": s.created_at, "updated_at": s.updated_at} for s in sessions]
 
 class ShareResponse(BaseModel):
     message: str
@@ -153,12 +154,17 @@ def get_session(session_id: str, current_user: User = Depends(get_optional_user)
         compliance_dict = validate_project(params_dict)
         score = 0.0
         
-        # generate a new floorplan
         floor_plan_b64 = ""
         dxf_b64 = None
         if params_dict:
-            floor_plan_b64, dxf_b64, score = generate_floorplan(params_dict, compliance_dict)
-            
+            try:
+                floor_plan_b64, dxf_b64, score = generate_floorplan(params_dict, compliance_dict)
+            except Exception as e:
+                print(f"Failed to regenerate historical layout: {e}")
+                # Provide a placeholder SVG with an error message instead of an empty string
+                import base64
+                error_svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><rect width="100%" height="100%" fill="#fee" /><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#c00" font-family="sans-serif">Error: Invalid geometric layout</text></svg>'
+                floor_plan_b64 = "data:image/svg+xml;base64," + base64.b64encode(error_svg.encode('utf-8')).decode('ascii')
         analysis_resp = AnalysisResponse(
             extracted_parameters=ProjectParameters(**params_dict),
             compliance=ComplianceResult(**compliance_dict),
@@ -170,12 +176,37 @@ def get_session(session_id: str, current_user: User = Depends(get_optional_user)
         
     return ChatResponse(
         session_id=session_id,
+        title=chat_session.title,
         messages=[SchemaChatMessage(role=msg.role, content=msg.content) for msg in history],
         analysis=analysis_resp,
         is_owner=is_owner,
         is_public=chat_session.is_public if chat_session.is_public else False
     )
 
+class RenameRequest(BaseModel):
+    title: str
+
+@router.put("/session/{session_id}/rename")
+def rename_session(session_id: str, request: RenameRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not chat_session or chat_session.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    chat_session.title = request.title
+    db.commit()
+    
+    return {"message": "Session renamed successfully", "title": request.title}
+
+@router.delete("/session/{session_id}")
+def delete_session(session_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not chat_session or chat_session.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    db.delete(chat_session)
+    db.commit()
+    
+    return {"message": "Session deleted successfully"}
 
 @router.get("/site-plan/sample.png")
 def sample_site_plan_png():

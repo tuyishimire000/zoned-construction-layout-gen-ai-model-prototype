@@ -47,10 +47,22 @@ def validate_project(params: dict) -> dict:
         "outside_kitchens": 12,
         "outside_bathrooms": 6,
         "maid_rooms": 12,
-        "corridors": 15
+        "corridors": 15,
+        "verandas": 10,
+        "dinings": 16,
+        "stores": 6
     }
     
-    rooms = params.get("rooms", {})
+    rooms_data = params.get("rooms", {})
+    if isinstance(rooms_data, list):
+        rooms = {}
+        for r in rooms_data:
+            rtype = r.get("type", "")
+            rkey = rtype + "s" if not rtype.endswith("s") else rtype
+            rooms[rkey] = rooms.get(rkey, 0) + 1
+    else:
+        rooms = rooms_data
+        
     total_room_area = sum(rooms.get(room_type, 0) * size for room_type, size in STANDARD_ROOM_SIZES.items())
     total_allowed_internal_area = allowed_area * floors
     

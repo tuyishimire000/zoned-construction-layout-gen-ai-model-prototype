@@ -42,6 +42,7 @@ class ChatSession(Base):
 
     id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id"), nullable=True) # nullable for backwards compatibility initially
+    title = Column(String, nullable=True, default="New Project")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_public = Column(Boolean, default=False)
@@ -75,7 +76,12 @@ try:
             else:
                 conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN is_public BOOLEAN DEFAULT 0"))
         except Exception as e:
-            print(f"Migration skipped (column likely already exists). Error: {e}")
+            print(f"Migration skipped (is_public likely already exists). Error: {e}")
+            
+        try:
+            conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN title VARCHAR(255) DEFAULT 'New Project'"))
+        except Exception as e:
+            print(f"Migration skipped (title likely already exists). Error: {e}")
 except Exception as e:
     print(f"Warning: Could not create tables on startup. Error: {e}")
 

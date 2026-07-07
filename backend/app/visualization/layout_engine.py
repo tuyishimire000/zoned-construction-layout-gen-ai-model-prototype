@@ -558,7 +558,7 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
             
     return openings
 
-def build_floorplan(params: dict, compliance: dict) -> FloorPlan:
+def build_floorplan(params: dict, compliance: dict) -> tuple:
     plot_size = params.get("plot_size") or 600
     floors = params.get("floors") or 1
     parking = params.get("parking_spaces") or 0
@@ -568,29 +568,38 @@ def build_floorplan(params: dict, compliance: dict) -> FloorPlan:
     plot_side = math.sqrt(plot_size)
     plot = Rect(0, 0, plot_side, plot_side)
     
-    rooms_counts = params.get("rooms", {}) or {}
+    rooms_data = params.get("rooms", []) or []
     
-    from .house_sketch import HouseSketch, SketchValidationError
+    from .house_sketch import HouseSketch, RoomSpec, SketchValidationError
     
-    try:
-        # 1. Generate the house layout
-        hs = HouseSketch(
-            plot_width=plot_side,
-            plot_depth=plot_side,
-            rooms=rooms_counts,
-            archetype=archetype,
-        )
-    except SketchValidationError as e:
-        # Fallback to a tiny layout if we can't fit the requested rooms, or just re-raise.
-        # For a prototype, raising is fine so the error bubbles up.
-        raise ValueError(f"Layout generation failed: {e}")
+    # Check if rooms_data is the old dict format
+    if isinstance(rooms_data, dict):
+        rooms_specs = rooms_data
+    else:
+        # It's a list of dicts (from the new AI schema)
+        rooms_specs = []
+        for r in rooms_data:
+            # Clean up empty strings or None values from LLM
+            clean_r = {k: v for k, v in r.items() if v is not None and v != ""}
+            rooms_specs.append(RoomSpec(**clean_r))
+            
+    setback = params.get("setback")
+    if setback is None:
+        setback = 3.0
+            
+    # 1. Generate the house layout
+    hs = HouseSketch(
+        plot_width=plot_side,
+        plot_depth=plot_side,
+        rooms=rooms_specs,
+        setback=setback
+    )
 
     # 2. Map HouseSketch geometry to Model Geometry
     placed_rooms = []
     
     def _dist(p1, p2):
         return math.hypot(p2[0]-p1[0], p2[1]-p1[1])
-        
     for hr in hs.all_rooms:
         if not hr.rect: continue
         r = Rect(hr.rect.x, hr.rect.y, hr.rect.w, hr.rect.h)
@@ -615,32 +624,45 @@ def build_floorplan(params: dict, compliance: dict) -> FloorPlan:
             center_x = (d.leaf[0][0] + d.leaf[1][0]) / 2
             center_y = (d.leaf[0][1] + d.leaf[1][1]) / 2
             
-            orient = Orientation.HORIZONTAL if abs(d.leaf[0][1] - d.leaf[1][1]) < 0.1 else Orientation.VERTICAL
+            # A horizontal leaf means the door swings left/right, which implies a VERTICAL wall.
+            # A vertical leaf means the door swings up/down, which implies a HORIZONTAL wall.
+            orient = Orientation.VERTICAL if abs(d.leaf[0][1] - d.leaf[1][1]) < 0.1 else Orientation.HORIZONTAL
             
             if orient == Orientation.HORIZONTAL:
-                ox = min(d.leaf[0][0], d.leaf[1][0])
-                oy = d.leaf[0][1]
+                # Door is in a horizontal wall. The gap runs left-right.
+                # Find the gap along the X axis.
+                # In HouseSketch, the arc goes from the other side of the gap (arc[0]) to the swing tip (arc[-1]).
+                # So the gap is between hinge and arc[0].
+                gap_start = d.leaf[0] # hinge
+                gap_end = d.arc[0]
+                ox = min(gap_start[0], gap_end[0])
+                oy = gap_start[1]
+                
                 # Is the door on the top or bottom wall of the room?
-                # If oy is closer to rect.y (top), it's on the top wall.
                 is_top_wall = abs(oy - hr.rect.y) < abs(oy - hr.rect.bottom)
-                # It should swing INTO the room: if top wall, swing down. If bottom wall, swing up.
                 swing = "down" if is_top_wall else "up"
                 
-                # Should hinge be on the left (start) or right (end) of the gap?
-                # Hinge should be closer to the nearest perpendicular wall to open against it.
-                dist_left = abs(ox - hr.rect.x)
-                dist_right = abs((ox + d_len) - hr.rect.right)
-                hinge_at_start = dist_left <= dist_right
+                # Hinge position
+                dist_left = abs(gap_start[0] - hr.rect.x)
+                dist_right = abs(gap_start[0] - hr.rect.right)
+                hinge_at_start = gap_start[0] < gap_end[0] # If hinge is left of gap_end, it's at start
+                
+                # We need to pass the gap length.
+                d_len = abs(gap_end[0] - gap_start[0])
             else:
-                ox = d.leaf[0][0]
-                oy = min(d.leaf[0][1], d.leaf[1][1])
+                # Door is in a vertical wall. The gap runs up-down.
+                gap_start = d.leaf[0] # hinge
+                gap_end = d.arc[0]
+                ox = gap_start[0]
+                oy = min(gap_start[1], gap_end[1])
+                
                 # Is the door on the left or right wall?
                 is_left_wall = abs(ox - hr.rect.x) < abs(ox - hr.rect.right)
-                # It should swing INTO the room: if left wall, swing right. If right wall, swing left.
                 swing = "right" if is_left_wall else "left"
                 
+                d_len = abs(gap_end[1] - gap_start[1])
+                
                 # Should hinge be on the bottom (start) or top (end) of the gap?
-                dist_bottom = abs(oy - hr.rect.y) # wait, rect.y is top!
                 dist_top = abs(oy - hr.rect.y)
                 dist_bottom = abs((oy + d_len) - hr.rect.bottom)
                 hinge_at_start = dist_top <= dist_bottom # True means hinge is at oy (which is the smaller y, i.e. closer to top)
@@ -695,7 +717,7 @@ def build_floorplan(params: dict, compliance: dict) -> FloorPlan:
         if abs(r.bounds.bottom - building.bottom) < 0.5:
             for o in r.openings:
                 if o.type == OpeningType.DOOR and o.orientation == Orientation.HORIZONTAL and abs(o.y - building.bottom) < 0.5:
-                    front_door_x = o.x + o.size / 2
+                    front_door_x = o.x + o.length / 2
                     front_door_y = o.y
                     break
             
@@ -726,5 +748,5 @@ def build_floorplan(params: dict, compliance: dict) -> FloorPlan:
         for i in range(min(parking, 5)):
             plan.site_features.append(SiteFeature(FeatureType.PARKING, Rect(start_x + i * 3.0, start_y, stall_w, stall_h), "P"))
 
-    return plan
+    return plan, hs
 

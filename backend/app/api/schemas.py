@@ -62,7 +62,7 @@ class ProjectParameters(BaseModel):
     floors: Optional[int] = None
     usage: Optional[str] = None
     parking_spaces: Optional[int] = None
-    rooms: RoomCounts = RoomCounts()
+    rooms: Any = []
     graph: Optional[LayoutGraph] = None
 
 class ComplianceResult(BaseModel):
@@ -95,6 +95,7 @@ class ChatMessage(BaseModel):
 
 class ChatResponse(BaseModel):
     session_id: str
+    title: Optional[str] = None
     messages: List[ChatMessage]
     analysis: Optional[AnalysisResponse] = None
     is_owner: bool = True

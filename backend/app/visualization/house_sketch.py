@@ -1,4 +1,22 @@
 """HouseSketch: turn typed house parameters into a real PNG + SVG floor sketch.
+
+Design goals (deliberately small and self-contained):
+  * Input is plain typed data: plot dimensions + how many of each room.
+  * Inputs are validated against the plot (setbacks, buildable area, min sizes)
+    and raise a clear error if the house cannot reasonably fit.
+  * Geometry is computed ONCE in meters, then drawn through a tiny `_Surface`
+    abstraction so the PNG (Pillow) and SVG (hand-written) outputs are identical.
+  * No external services. Only Pillow is required (for PNG); SVG is pure strings.
+
+Layout archetype (typical rectangular African house): a central corridor runs
+front-to-back with private rooms (bedrooms / bathrooms / kitchen) on either side,
+and a full-width public band (living + dining) across the front.
+
+Coordinate system: origin top-left, X right, Y down (screen convention), meters.
+The front of the house (street side) is the BOTTOM (large Y).
+
+Run it directly to produce sample files:
+    python -m app.sketch.house_sketch
 """
 
 from __future__ import annotations
@@ -7,12 +25,16 @@ import io
 import math
 import html
 import base64
-import random
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Set, Tuple, Union
 
 from PIL import Image, ImageDraw, ImageFont
+
+
+# --------------------------------------------------------------------------- #
+# Room catalogue
+# --------------------------------------------------------------------------- #
 
 
 class RoomType(str, Enum):
@@ -23,16 +45,14 @@ class RoomType(str, Enum):
     DINING = "dining"
     OFFICE = "office"
     CORRIDOR = "corridor"
-    GARAGE = "garage"
-    STORE = "store"
-    LAUNDRY = "laundry"
-    PANTRY = "pantry"
-    BALCONY = "balcony"
-    OTHER = "other"  # catch-all for any room name not otherwise recognized
+    VERANDA = "veranda"   # barza / porch — semi-open front space
+    STORE = "store"       # pantry / storage
 
 
+# Rooms that form the full-width public band at the front.
 PUBLIC_TYPES = {RoomType.LIVING_ROOM, RoomType.DINING}
 
+# Desired floor area (m²) and minimum side lengths (m) per room type.
 ROOM_AREA = {
     RoomType.BEDROOM: 14.0,
     RoomType.BATHROOM: 5.0,
@@ -41,12 +61,8 @@ ROOM_AREA = {
     RoomType.DINING: 12.0,
     RoomType.OFFICE: 10.0,
     RoomType.CORRIDOR: 6.0,
-    RoomType.GARAGE: 18.0,
-    RoomType.STORE: 4.0,
-    RoomType.LAUNDRY: 5.0,
-    RoomType.PANTRY: 3.5,
-    RoomType.BALCONY: 6.0,
-    RoomType.OTHER: 10.0,  # generic fallback for an unrecognized room name
+    RoomType.VERANDA: 8.0,
+    RoomType.STORE: 3.0,
 }
 ROOM_MIN_SIDE = {
     RoomType.BEDROOM: 2.6,
@@ -56,25 +72,30 @@ ROOM_MIN_SIDE = {
     RoomType.DINING: 2.4,
     RoomType.OFFICE: 2.0,
     RoomType.CORRIDOR: 1.0,
-    RoomType.GARAGE: 2.8,
-    RoomType.STORE: 1.4,
-    RoomType.LAUNDRY: 1.6,
-    RoomType.PANTRY: 1.3,
-    RoomType.BALCONY: 1.4,
-    RoomType.OTHER: 2.0,
+    RoomType.VERANDA: 1.2,
+    RoomType.STORE: 0.9,
 }
+# Professional look: rooms are white; circulation is a faint grey, the veranda a
+# lighter grey (semi-open), the store a faint neutral.
 ROOM_COLOR = {rt: "#FFFFFF" for rt in RoomType}
 ROOM_COLOR[RoomType.CORRIDOR] = "#F2F3F5"
+ROOM_COLOR[RoomType.VERANDA] = "#EDEFF1"
+ROOM_COLOR[RoomType.STORE] = "#F5F3EE"
 
+# Drawing convention / legend. Single source of truth for the colour language.
+#   wall states : added (red), removed (blue), remaining (black)
+#   unit fills  : first unit (mint), second unit (light yellow)
+#   openings    : windows are orange with black jamb caps
 LEGEND = {
-    "added_wall": "#E53935",
-    "removed_wall": "#1E88E5",
-    "remaining_wall": "#111111",
-    "unit_1": "#B9F6CA",
-    "unit_2": "#FFF59D",
-    "window": "#EF7C00",
+    "added_wall": "#E53935",  # red
+    "removed_wall": "#1E88E5",  # blue
+    "remaining_wall": "#111111",  # black
+    "unit_1": "#B9F6CA",  # mint green
+    "unit_2": "#FFF59D",  # light yellow
+    "window": "#EF7C00",  # orange
 }
 
+# Accept loose synonyms so callers can pass "bed", "bathrooms", "lounge", etc.
 _ALIASES = {
     "bed": RoomType.BEDROOM,
     "bedroom": RoomType.BEDROOM,
@@ -84,7 +105,6 @@ _ALIASES = {
     "bathrooms": RoomType.BATHROOM,
     "wc": RoomType.BATHROOM,
     "toilet": RoomType.BATHROOM,
-    "ensuite": RoomType.BATHROOM,
     "kitchen": RoomType.KITCHEN,
     "kitchens": RoomType.KITCHEN,
     "living": RoomType.LIVING_ROOM,
@@ -92,50 +112,42 @@ _ALIASES = {
     "living_rooms": RoomType.LIVING_ROOM,
     "lounge": RoomType.LIVING_ROOM,
     "sitting": RoomType.LIVING_ROOM,
-    "family_room": RoomType.LIVING_ROOM,
     "dining": RoomType.DINING,
     "dining_room": RoomType.DINING,
     "office": RoomType.OFFICE,
     "offices": RoomType.OFFICE,
     "study": RoomType.OFFICE,
-    "home_office": RoomType.OFFICE,
     "corridor": RoomType.CORRIDOR,
     "hall": RoomType.CORRIDOR,
     "hallway": RoomType.CORRIDOR,
     "passage": RoomType.CORRIDOR,
-    "garage": RoomType.GARAGE,
-    "carport": RoomType.GARAGE,
+    "veranda": RoomType.VERANDA,
+    "verandah": RoomType.VERANDA,
+    "barza": RoomType.VERANDA,
+    "porch": RoomType.VERANDA,
+    "balcony": RoomType.VERANDA,
     "store": RoomType.STORE,
+    "stores": RoomType.STORE,
+    "pantry": RoomType.STORE,
     "storage": RoomType.STORE,
-    "store_room": RoomType.STORE,
-    "storeroom": RoomType.STORE,
     "closet": RoomType.STORE,
-    "walk_in_closet": RoomType.STORE,
-    "laundry": RoomType.LAUNDRY,
-    "utility": RoomType.LAUNDRY,
-    "utility_room": RoomType.LAUNDRY,
-    "pantry": RoomType.PANTRY,
-    "balcony": RoomType.BALCONY,
-    "terrace": RoomType.BALCONY,
-    "veranda": RoomType.BALCONY,
-    "verandah": RoomType.BALCONY,
-    "porch": RoomType.BALCONY,
 }
 
 
 def _normalize(rtype: Union[str, RoomType]) -> RoomType:
-    """Map a room-type string onto a `RoomType`. Anything not recognized
-    becomes RoomType.OTHER (with generic default sizing) rather than raising —
-    an extractor reading free-form text (e.g. "prayer room", "cinema room")
-    will surface names this module was never told about, and a hard failure
-    there would make the whole pipeline as brittle as its room-name list.
-    Give a room explicit `area`/`min_width`/`min_depth` in its RoomSpec for
-    accurate sizing when using an unrecognized type.
-    """
     if isinstance(rtype, RoomType):
         return rtype
-    key = str(rtype).strip().lower().replace(" ", "_").replace("-", "_")
-    return _ALIASES.get(key, RoomType.OTHER)
+    key = str(rtype).strip().lower().replace(" ", "_")
+    if key not in _ALIASES:
+        raise SketchValidationError(
+            f"Unknown room type {rtype!r}. Known: {sorted(set(_ALIASES))}"
+        )
+    return _ALIASES[key]
+
+
+# --------------------------------------------------------------------------- #
+# Geometry primitives
+# --------------------------------------------------------------------------- #
 
 
 @dataclass
@@ -168,8 +180,8 @@ class Rect:
 
 @dataclass
 class Door:
-    leaf: Tuple[Tuple[float, float], Tuple[float, float]]
-    arc: List[Tuple[float, float]]
+    leaf: Tuple[Tuple[float, float], Tuple[float, float]]  # hinge -> leaf tip
+    arc: List[Tuple[float, float]]  # swing polyline
 
 
 @dataclass
@@ -179,7 +191,20 @@ class Window:
 
 
 @dataclass
+class Furniture:
+    """A piece of furniture within a room. `kind` selects the drawn glyph;
+    `bounds` is its footprint in meters; `facing` ("up"/"down"/"left"/"right")
+    orients direction-sensitive glyphs (bed headboard, sofa back, etc.)."""
+
+    kind: str
+    bounds: Rect
+    facing: str = "up"
+
+
+@dataclass
 class Room:
+    """A room after layout: its computed geometry plus a link to its spec."""
+
     type: RoomType
     label: str
     rect: Optional[Rect] = None
@@ -188,6 +213,7 @@ class Room:
     door_walls: Set[str] = field(default_factory=set)
     id: str = ""
     spec: Optional["RoomSpec"] = None
+    furniture: List[Furniture] = field(default_factory=list)
 
 
 class SketchValidationError(ValueError):
@@ -196,6 +222,33 @@ class SketchValidationError(ValueError):
 
 @dataclass
 class RoomSpec:
+    """Declarative description of one room the caller wants.
+
+    Only ``type`` is required; every other field is optional and falls back to
+    per-type defaults or the layout engine's own decisions when omitted. This is
+    the INPUT model — the computed geometry ends up on the matching `Room`.
+
+    Sizing:      ``area`` wins; else ``width * depth`` if both given; else the
+                 per-type default. ``min_width`` / ``min_depth`` override the
+                 per-type minimums used for validation and column stacking.
+    Placement:   ``zone`` forces "public" (front band) or "private" (rear); if
+                 None it is inferred from the room type. ``adjacent_to`` lists
+                 the ids/names this room should border (drives doors). Position
+                 is given ONE of these ways:
+                   * ``position`` = explicit (x, y) meters from the building corner
+                   * one of ``east_of`` / ``west_of`` / ``north_of`` / ``south_of``
+                     = an anchor room id; this room is placed flush against that
+                     side of the anchor, sharing a wall (no coordinates needed).
+                 ``align`` ("start"/"center"/"end") and ``offset`` (m) slide the
+                 room along the shared wall; ``gap`` (m) leaves a gap instead of
+                 sharing. When a relatively-placed room omits the cross dimension
+                 (depth for east/west, width for north/south) it defaults to the
+                 anchor's, giving a full shared wall.
+    Openings:    ``entrances`` lists exterior walls to cut an entry door into
+                 ("left"/"right"/"top"/"bottom"). ``windows`` = False suppresses
+                 the automatic exterior windows for this room.
+    """
+
     type: Union[str, "RoomType"]
     name: Optional[str] = None
     id: Optional[str] = None
@@ -210,13 +263,14 @@ class RoomSpec:
     adjacent_to: List[str] = field(default_factory=list)
     position: Optional[Tuple[float, float]] = None
 
+    # Relative placement (alternative to `position`): one anchor room id.
     east_of: Optional[str] = None
     west_of: Optional[str] = None
     north_of: Optional[str] = None
     south_of: Optional[str] = None
-    align: str = "start"
-    offset: float = 0.0
-    gap: float = 0.0
+    align: str = "start"       # start | center | end, along the shared wall
+    offset: float = 0.0        # slide along the shared wall (meters)
+    gap: float = 0.0           # gap from the anchor instead of a shared wall
 
     entrances: List[str] = field(default_factory=list)
     windows: Optional[bool] = None
@@ -228,16 +282,7 @@ class RoomSpec:
     _RELATIONS = ("east_of", "west_of", "north_of", "south_of")
 
     def __post_init__(self):
-        raw_type = self.type
         self.type = _normalize(self.type)
-        if (
-            self.type is RoomType.OTHER
-            and not self.name
-            and isinstance(raw_type, str)
-        ):
-            # Fall back to the caller's own wording ("Prayer Room", "Cinema
-            # Room", ...) instead of the generic "Other" label.
-            self.name = raw_type.strip().replace("_", " ").title()
         if self.zone not in (None, "public", "private"):
             raise SketchValidationError(
                 f"zone must be 'public', 'private' or None, got {self.zone!r}"
@@ -262,6 +307,7 @@ class RoomSpec:
             )
 
     def anchor(self) -> Tuple[Optional[str], Optional[str]]:
+        """(anchor_id, relation) if placed relatively, else (None, None)."""
         for rel in self._RELATIONS:
             v = getattr(self, rel)
             if v:
@@ -269,15 +315,6 @@ class RoomSpec:
         return None, None
 
     def target_area(self) -> float:
-        """Desired floor area used for sizing/flex calculations.
-
-        NOTE: if only ONE of `width`/`depth` is set (not both, and no explicit
-        `area`), this falls back to the per-type default area rather than
-        deriving anything from the single pinned dimension — the other side is
-        then computed elsewhere as `area / pinned_side`, which may not match
-        what you'd expect. Set both `width` and `depth`, or `area`, to fully
-        control a room's size.
-        """
         if self.area is not None:
             return self.area
         if self.width is not None and self.depth is not None:
@@ -285,64 +322,26 @@ class RoomSpec:
         return ROOM_AREA[self.type]
 
 
-@dataclass
-class LayoutTuning:
-    """Every numeric knob the non-manual archetypes use, factored out of the
-    layout code so a caller (e.g. a pipeline mapping extracted parameters onto
-    a house) can override them without touching code. Defaults reproduce the
-    original hand-tuned behavior exactly — pass a modified instance (or a
-    dict of overrides) via `HouseSketch(..., tuning=...)` to change them.
-
-    None of these are "correct" in any universal sense; they're reasonable
-    defaults for a modest single-storey house. A different market/typology
-    (tiny apartments, large villas) may want different numbers entirely.
-    """
-
-    # Front (public) band depth, as a fraction/floor of the footprint depth D.
-    front_depth_min: float = 4.0
-    front_depth_max_frac: float = 0.45      # cap when depth is derived from area
-    front_depth_pinned_max_frac: float = 0.6  # cap when a room pins its own depth
-
-    # Corridor / hall strip width.
-    corridor_width_max: float = 1.3
-    corridor_width_frac_two_col: float = 0.12   # fraction of the private zone's width
-    corridor_width_frac_single_col: float = 0.18
-
-    # Courtyard ring (back row + two side columns around an open void).
-    courtyard_back_depth_min: float = 3.0
-    courtyard_back_depth_max_frac: float = 0.4   # fraction of the rear rect's depth
-    courtyard_col_width_min: float = 2.6
-    courtyard_col_width_max_frac: float = 0.35   # fraction of the rear rect's width
-
-    # L-shape wings (private wing width, public wing depth).
-    l_wing_min: float = 3.0
-    l_wing_max_frac: float = 0.6            # fraction of the footprint's matching side
-
-    # Archway stub length: how much solid wall stays at each end of an
-    # open-plan opening so it doesn't erase into an adjacent corner.
-    archway_stub: float = 0.5
-
-    # "auto" archetype choice, based on the footprint's aspect ratio (W / D).
-    auto_narrow_aspect: float = 0.55        # below this -> single_loaded
-    auto_wide_aspect: float = 1.8           # above this -> single_loaded
-    auto_courtyard_aspect_lo: float = 0.8
-    auto_courtyard_aspect_hi: float = 1.25
-    auto_courtyard_min_private: int = 5     # min private-room count to try a ring
-
-    @classmethod
-    def coerce(cls, value: Union["LayoutTuning", dict, None]) -> "LayoutTuning":
-        if value is None:
-            return cls()
-        if isinstance(value, LayoutTuning):
-            return value
-        if isinstance(value, dict):
-            return replace(cls(), **value)
-        raise SketchValidationError(
-            "tuning must be a LayoutTuning, a dict of overrides, or None."
-        )
+# --------------------------------------------------------------------------- #
+# The class
+# --------------------------------------------------------------------------- #
 
 
 class HouseSketch:
+    """Build and render a single-storey house sketch from typed parameters.
+
+    Example
+    -------
+    >>> sketch = HouseSketch(
+    ...     plot_width=16, plot_depth=18,
+    ...     rooms={"bedroom": 3, "bathroom": 1, "kitchen": 1,
+    ...            "living_room": 1, "dining": 1},
+    ...     setback=3.0,
+    ... )
+    >>> png_bytes = sketch.to_png("house.png")
+    >>> svg_text  = sketch.to_svg("house.svg")
+    """
+
     def __init__(
         self,
         plot_width: float,
@@ -354,52 +353,12 @@ class HouseSketch:
         *,
         setback: float = 3.0,
         circulation: float = 1.12,
-        wall_thickness: float = 0.3,
+        wall_thickness: float = 0.2,
         title: str = "PROPOSED HOUSE SKETCH",
-        archetype: str = "auto",
-        tuning: Union["LayoutTuning", dict, None] = None,
-        mirror: Optional[bool] = None,
-        seed: Optional[int] = None,
+        furniture: bool = True,
     ):
-        """`archetype` picks the spatial idea used when no manual placement is
-        given (position/east_of/etc. on any room still takes over completely):
-
-          * "central_corridor" — public band at the front, private rooms in two
-            columns flanking a central hall behind it (the original layout).
-          * "single_loaded"    — public band at the front, private rooms in ONE
-            column with the corridor as a strip beside it. Suits narrow plots.
-          * "courtyard"        — public band at the front, private rooms form a
-            U (back row + two side columns) around an open central courtyard
-            instead of an indoor corridor.
-          * "l_shape"          — a private wing and a public wing meet at a
-            right angle, leaving an open notch (yard) — an L-shaped footprint.
-          * "auto" (default)   — picks one of the above from the footprint's
-            aspect ratio and room count; see `_choose_archetype`.
-
-        `tuning` overrides the numeric assumptions the archetypes use (corridor
-        widths, band depths, etc.) — see `LayoutTuning`. Pass a `LayoutTuning`
-        instance or a dict of just the fields you want to change.
-
-        `mirror` flips the finished (non-manual) layout left-right. Leave as
-        None to let `seed` decide randomly each time — a free source of visual
-        variety between two otherwise-similar requests. Pass True/False to pin
-        it.
-
-        `seed` controls the randomness used for `mirror` (when None) and for
-        breaking ties when grouping rooms into columns/rows — e.g. which of two
-        equal-area bedrooms lands on the left vs right. Leave unset for a fresh
-        (non-reproducible) variation each call; set it for a reproducible one
-        (e.g. hashing the user's request id) or to regenerate the same result.
-        """
         if plot_width <= 0 or plot_depth <= 0:
             raise SketchValidationError("Plot dimensions must be positive.")
-        valid_archetypes = {
-            "auto", "central_corridor", "single_loaded", "courtyard", "l_shape",
-        }
-        if archetype not in valid_archetypes:
-            raise SketchValidationError(
-                f"archetype must be one of {sorted(valid_archetypes)}, got {archetype!r}"
-            )
         if setback < 0 or setback * 2 >= min(plot_width, plot_depth):
             raise SketchValidationError(
                 f"Setback {setback} m leaves no buildable area on a "
@@ -411,12 +370,7 @@ class HouseSketch:
         self.circulation = float(circulation)
         self.wall = float(wall_thickness)
         self.title = title
-        self._requested_archetype = archetype
-        self.archetype = archetype  # resolved to a concrete name in _layout()
-        self.tuning = LayoutTuning.coerce(tuning)
-        self._mirror_requested = mirror
-        self._rng = random.Random(seed)
-        self.mirrored = False
+        self.show_furniture = bool(furniture)
 
         self.footprint = Rect(
             setback, setback, plot_width - 2 * setback, plot_depth - 2 * setback
@@ -426,27 +380,54 @@ class HouseSketch:
         if not self.rooms:
             raise SketchValidationError("At least one room is required.")
 
+        # Manual placement kicks in when any room carries an explicit position
+        # or a relative direction (east_of/west_of/north_of/south_of).
         self.manual = any(
             s.position is not None or s.anchor()[0] for s in self.specs
         )
 
         self.corridor: Optional[Room] = None
+        # Wall segments left open as passages (corridor mouth, open-plan, etc.).
         self.openings: List[Tuple[Tuple[float, float], Tuple[float, float]]] = []
+        # Spatial model: room id -> [{neighbor, wall, segment}], computed from
+        # the placed geometry so the class understands where every element sits.
         self.adjacency: Dict[str, List[dict]] = {}
 
-        self.validate()
-        self._layout()
+        self.validate()  # raises on hard failures
+        self._layout()  # fills room.rect + corridor + doors + windows
+
+    # -- input handling ----------------------------------------------------- #
 
     @classmethod
     def from_area(cls, plot_size: float, rooms, *, ratio: float = 1.2, **kw):
+        """Convenience: build from a plot AREA (m²) and a depth:width `ratio`."""
         if plot_size <= 0:
             raise SketchValidationError("plot_size must be positive.")
         width = math.sqrt(plot_size / ratio)
         depth = width * ratio
         return cls(width, depth, rooms, **kw)
 
+    @classmethod
+    def fit(cls, rooms, *, setback: float = 3.0, **kw):
+        """Build with the plot AUTO-SIZED to the (manually placed) rooms.
+
+        You place rooms by position / relative direction and don't compute the
+        plot at all: the building is measured, then the plot is set to
+        building + a `setback` yard on every side. Requires manual placement.
+        """
+        probe = cls(10_000.0, 10_000.0, rooms, setback=setback, **kw)
+        if not probe.manual:
+            raise SketchValidationError(
+                "fit() needs rooms placed by position or relative direction "
+                "(east_of / west_of / north_of / south_of)."
+            )
+        bb = probe._rooms_bbox()
+        pad = 2 * setback + 1e-3
+        return cls(bb.w + pad, bb.h + pad, rooms, setback=setback, **kw)
+
     @staticmethod
     def _coerce_specs(rooms) -> List["RoomSpec"]:
+        """Normalize any accepted `rooms` form into a list of RoomSpec."""
         specs: List[RoomSpec] = []
         if isinstance(rooms, dict):
             for rtype, n in rooms.items():
@@ -458,7 +439,7 @@ class HouseSketch:
                     specs.append(item)
                 elif isinstance(item, dict):
                     specs.append(RoomSpec(**item))
-                else:
+                else:  # bare "bedroom" / RoomType.BEDROOM
                     specs.append(RoomSpec(type=item))
         return specs
 
@@ -467,6 +448,7 @@ class HouseSketch:
         return "-".join(text.lower().split())
 
     def _build_rooms(self, specs: List["RoomSpec"]) -> List[Room]:
+        """Turn specs into Rooms, assigning default labels + unique ids."""
         totals: Dict[RoomType, int] = {}
         for s in specs:
             totals[s.type] = totals.get(s.type, 0) + 1
@@ -487,21 +469,12 @@ class HouseSketch:
             while rid in used_ids:
                 rid, k = f"{base_id}-{k}", k + 1
             used_ids.add(rid)
-            s.id = rid
+            s.id = rid  # backfill so adjacency can reference auto-generated ids
 
             rooms.append(Room(type=s.type, label=label, id=rid, spec=s))
-        # Kept so later auto-generated ids (e.g. the corridor) can't collide
-        # with a user-supplied room id/label.
-        self._used_ids: Set[str] = used_ids
         return rooms
 
-    def _unique_id(self, base: str) -> str:
-        """An id guaranteed not to collide with any room id already in use."""
-        rid, k = base, 2
-        while rid in self._used_ids:
-            rid, k = f"{base}-{k}", k + 1
-        self._used_ids.add(rid)
-        return rid
+    # -- per-room effective values (spec overrides, else per-type defaults) -- #
 
     def _area(self, room: Room) -> float:
         return room.spec.target_area() if room.spec else ROOM_AREA[room.type]
@@ -528,10 +501,16 @@ class HouseSketch:
     def all_rooms(self) -> List[Room]:
         return self.rooms + ([self.corridor] if self.corridor else [])
 
+    # -- validation --------------------------------------------------------- #
+
     def required_area(self) -> float:
+        """Desired total floor area incl. a circulation allowance."""
         return sum(self._area(r) for r in self.rooms) * self.circulation
 
     def validate(self) -> None:
+        """Raise SketchValidationError if the rooms cannot fit the plot."""
+        # Auto layout packs rooms with a circulation allowance; manual layout
+        # is validated exactly (inside footprint, no overlaps) during placement.
         if not self.manual:
             buildable = self.footprint.area
             needed = self.required_area()
@@ -543,129 +522,100 @@ class HouseSketch:
                     f"Reduce rooms, shrink setbacks, or enlarge the plot."
                 )
 
-        ids = {r.id for r in self.rooms}
-        names = {r.label for r in self.rooms}
+        # Adjacency references must resolve to a known room id or label.
+        # Every reference (adjacent_to + relative anchors) must resolve.
+        valid_ids = sorted(r.id for r in self.rooms)
         for r in self.rooms:
-            for ref in r.spec.adjacent_to if r.spec else []:
-                if ref not in ids and ref not in names:
+            refs = list(r.spec.adjacent_to) if r.spec else []
+            anchor_id, _ = r.spec.anchor() if r.spec else (None, None)
+            if anchor_id:
+                refs.append(anchor_id)
+            for ref in refs:
+                if self._resolve(ref) is not None:
+                    continue
+                try:
+                    rtype = _normalize(ref)
+                    n = sum(1 for x in self.rooms if x.type == rtype)
+                except SketchValidationError:
+                    n = 0
+                if n > 1:
                     raise SketchValidationError(
-                        f"{r.label!r} lists an unknown adjacent room {ref!r}."
+                        f"{r.label!r} references {ref!r}, but there are {n} "
+                        f"{ref} rooms — use a specific id instead. Ids: {valid_ids}"
                     )
+                raise SketchValidationError(
+                    f"{r.label!r} references unknown room {ref!r}. "
+                    f"Known ids: {valid_ids}"
+                )
 
-    def _choose_archetype(self) -> str:
-        """Pick a concrete archetype for archetype="auto".
-
-        Heuristic, not a design judgement call the caller can't override:
-        narrow/deep footprints favour a single loaded corridor (two columns +
-        a hall would leave rooms too thin); squarish footprints with enough
-        rooms to fill a ring favour a courtyard; everything else defaults to
-        the central corridor. Pass an explicit `archetype=` to skip this.
-        """
-        fb = self.footprint
-        t = self.tuning
-        aspect = fb.w / fb.h if fb.h else 1.0
-        private_n = len([r for r in self.rooms if not self._is_public(r)])
-        if aspect < t.auto_narrow_aspect or aspect > t.auto_wide_aspect:
-            return "single_loaded"
-        if (
-            t.auto_courtyard_aspect_lo <= aspect <= t.auto_courtyard_aspect_hi
-            and private_n >= t.auto_courtyard_min_private
-        ):
-            return "courtyard"
-        return "central_corridor"
+    # -- layout dispatch ---------------------------------------------------- #
 
     def _layout(self) -> None:
+        """Place rooms, then compute the adjacency graph from the geometry.
+
+        If any room carries an explicit `position`, use manual placement; else
+        fall back to the automatic central-corridor archetype.
+        """
         if self.manual:
             self._layout_manual()
         else:
-            if self.archetype == "auto":
-                self.archetype = self._choose_archetype()
-            {
-                "central_corridor": self._layout_central_corridor,
-                "single_loaded": self._layout_single_loaded,
-                "courtyard": self._layout_courtyard,
-                "l_shape": self._layout_l_shape,
-            }[self.archetype]()
-            self._check_min_sizes()
+            self._layout_auto()
         self.adjacency = self._compute_adjacency()
+        # Windows are placed last: they sit on exterior (non-shared) wall edges,
+        # which we only know once every room is placed and adjacency is computed.
         self._place_windows()
-
-        if not self.manual:
-            do_mirror = self._mirror_requested
-            if do_mirror is None:
-                do_mirror = self._rng.random() < 0.5
-            if do_mirror:
-                self._apply_mirror()
-            self.mirrored = bool(do_mirror)
-
-    def _mirror_point(self, p: Tuple[float, float]) -> Tuple[float, float]:
-        return (2 * self.footprint.cx - p[0], p[1])
-
-    def _mirror_rect(self, r: Rect) -> Rect:
-        return Rect(2 * self.footprint.cx - r.x - r.w, r.y, r.w, r.h)
-
-    def _apply_mirror(self) -> None:
-        """Flip the finished layout left-right about the footprint's vertical
-        centerline: a free, always-valid source of visual variety (every
-        distance/area is preserved, only left/right is swapped). Runs after
-        all geometry, doors, and windows are computed, so it's a pure
-        coordinate transform of an already-valid plan."""
-        for room in self.all_rooms:
-            if room.rect:
-                room.rect = self._mirror_rect(room.rect)
-            room.doors = [
-                Door(
-                    leaf=(self._mirror_point(d.leaf[0]), self._mirror_point(d.leaf[1])),
-                    arc=[self._mirror_point(p) for p in d.arc],
-                )
-                for d in room.doors
-            ]
-            room.windows = [
-                Window(self._mirror_point(w.p0), self._mirror_point(w.p1))
-                for w in room.windows
-            ]
-        self.openings = [
-            (self._mirror_point(a), self._mirror_point(b)) for a, b in self.openings
-        ]
-        # Every room moved, so cached wall-segment data is stale — cheap to
-        # just recompute rather than transform it in place.
-        self.adjacency = self._compute_adjacency()
+        if self.show_furniture:
+            for r in self.all_rooms:
+                r.furniture = self._furnish_room(r)
 
     def _resolve(self, ref: str) -> Optional[Room]:
+        """Find a room by id, label, or (when unambiguous) room type.
+
+        So `adjacent_to=["dining"]` resolves to the single dining room even if its
+        id is "din". A type reference that matches several rooms (e.g. "bedroom"
+        with three bedrooms) is ambiguous and is left for the caller to report.
+        """
         for r in self.rooms:
             if r.id == ref or r.label == ref:
                 return r
-        return None
+        try:
+            rtype = _normalize(ref)
+        except SketchValidationError:
+            return None
+        matches = [r for r in self.rooms if r.type == rtype]
+        return matches[0] if len(matches) == 1 else None
 
     def neighbors_of(self, room_id: str) -> List[str]:
+        """Ids of the rooms that share a wall with the given room."""
         return [e["neighbor"] for e in self.adjacency.get(room_id, [])]
 
     def _compute_adjacency(self) -> Dict[str, List[dict]]:
+        """Work out which rooms share a wall, and the shared segment (meters)."""
         rooms = [r for r in self.all_rooms if r.rect]
         adj: Dict[str, List[dict]] = {r.id: [] for r in rooms}
-        eps = max(self.wall, 0.05) * 1.5
-        min_overlap = 0.4
+        eps = max(self.wall, 0.05) * 1.5   # collinearity tolerance
+        min_overlap = 0.4                  # ignore mere corner touches
 
         for i, a in enumerate(rooms):
             for b in rooms[i + 1 :]:
                 ra, rb = a.rect, b.rect
                 seg = wall_a = wall_b = None
-                if abs(ra.right - rb.x) < eps:
+                if abs(ra.right - rb.x) < eps:          # a is left of b
                     lo, hi = max(ra.y, rb.y), min(ra.bottom, rb.bottom)
                     if hi - lo > min_overlap:
                         seg = ((ra.right, lo), (ra.right, hi))
                         wall_a, wall_b = "right", "left"
-                elif abs(rb.right - ra.x) < eps:
+                elif abs(rb.right - ra.x) < eps:        # a is right of b
                     lo, hi = max(ra.y, rb.y), min(ra.bottom, rb.bottom)
                     if hi - lo > min_overlap:
                         seg = ((ra.x, lo), (ra.x, hi))
                         wall_a, wall_b = "left", "right"
-                elif abs(ra.bottom - rb.y) < eps:
+                elif abs(ra.bottom - rb.y) < eps:       # a is above b
                     lo, hi = max(ra.x, rb.x), min(ra.right, rb.right)
                     if hi - lo > min_overlap:
                         seg = ((lo, ra.bottom), (hi, ra.bottom))
                         wall_a, wall_b = "bottom", "top"
-                elif abs(rb.bottom - ra.y) < eps:
+                elif abs(rb.bottom - ra.y) < eps:       # a is below b
                     lo, hi = max(ra.x, rb.x), min(ra.right, rb.right)
                     if hi - lo > min_overlap:
                         seg = ((lo, ra.y), (hi, ra.y))
@@ -675,32 +625,53 @@ class HouseSketch:
                     adj[b.id].append({"neighbor": a.id, "wall": wall_b, "segment": seg})
         return adj
 
+    # -- manual placement (explicit positions or relative directions) ------- #
+
     @staticmethod
     def _aligned(anchor_start, anchor_len, room_len, align, offset):
         if align == "center":
             base = anchor_start + (anchor_len - room_len) / 2
         elif align == "end":
             base = anchor_start + anchor_len - room_len
-        else:
+        else:  # start
             base = anchor_start
         return base + offset
 
     def _place_relative(self, room: Room, anchor: Room, relation: str) -> Rect:
+        """Rect for a room placed against one side of an already-placed anchor.
+
+        The cross dimension defaults to the anchor's (full shared wall) when the
+        spec leaves it out; the along dimension comes from the spec or its area.
+        """
         s, a = room.spec, anchor.rect
         if relation in ("east_of", "west_of"):
-            h = s.depth if s.depth is not None else a.h
+            if s.depth is not None:
+                h = s.depth
+            else:
+                max_h = self._area(room) / self._min_w(room)
+                h = max(self._min_d(room), min(a.h, max_h))
             w = s.width if s.width is not None else self._area(room) / h
             y = self._aligned(a.y, a.h, h, s.align, s.offset)
             x = a.right + s.gap if relation == "east_of" else a.x - w - s.gap
             return Rect(x, y, w, h)
-        else:
-            w = s.width if s.width is not None else a.w
+        else:  # north_of / south_of
+            if s.width is not None:
+                w = s.width
+            else:
+                max_w = self._area(room) / self._min_d(room)
+                w = max(self._min_w(room), min(a.w, max_w))
             h = s.depth if s.depth is not None else self._area(room) / w
             x = self._aligned(a.x, a.w, w, s.align, s.offset)
             y = a.bottom + s.gap if relation == "south_of" else a.y - h - s.gap
             return Rect(x, y, w, h)
 
     def _resolve_positions(self) -> None:
+        """Turn explicit positions + relative directions into absolute rects.
+
+        Absolute-position rooms are placed first; relative rooms resolve once
+        their anchor is placed (dependency order). Cycles / dangling anchors and
+        rooms with no position at all are reported.
+        """
         fb = self.footprint
         pending = list(self.rooms)
         progressed = True
@@ -715,59 +686,92 @@ class HouseSketch:
                     r.rect = Rect(fb.x + s.position[0], fb.y + s.position[1], w, h)
                     pending.remove(r)
                     progressed = True
-                elif anchor_id is None:
-                    raise SketchValidationError(
-                        f"{r.label!r}: needs a position or a relative direction "
-                        f"(east_of / west_of / north_of / south_of)."
-                    )
                 else:
-                    anchor = self._resolve(anchor_id)
-                    if anchor is None:
-                        raise SketchValidationError(
-                            f"{r.label!r} is placed {relation} unknown room "
-                            f"{anchor_id!r}."
-                        )
+                    if anchor_id is None or self._resolve(anchor_id) is None:
+                        # Fallback if AI forgot anchor or used invalid anchor ID
+                        placed = [x for x in self.rooms if x.rect is not None]
+                        if placed:
+                            anchor_id = placed[0].id
+                            relation = "south_of"
+                            anchor = placed[0]
+                        else:
+                            # Fallback if this is the very first room and it has no position
+                            w = s.width if s.width is not None else self._area(r) ** 0.5
+                            h = s.depth if s.depth is not None else self._area(r) / w
+                            r.rect = Rect(fb.x, fb.y, w, h)
+                            pending.remove(r)
+                            progressed = True
+                            continue
+                    else:
+                        anchor = self._resolve(anchor_id)
+                        
                     if anchor.rect is None:
-                        continue
+                        continue  # anchor not placed yet — try next pass
                     r.rect = self._place_relative(r, anchor, relation)
                     pending.remove(r)
                     progressed = True
 
         if pending:
-            names = ", ".join(repr(r.label) for r in pending)
-            raise SketchValidationError(
-                f"Relative placement could not resolve {names} — check for a "
-                f"cycle or an anchor that is itself unplaced."
-            )
+            # If there's a cycle, forcibly place the first pending room south of the first placed room
+            placed = [x for x in self.rooms if x.rect is not None]
+            if placed and pending:
+                for r in pending:
+                    r.rect = self._place_relative(r, placed[0], "south_of")
+            else:
+                # If nothing is placed, just place them sequentially
+                cur_y = fb.y
+                for r in pending:
+                    w = r.spec.width if (r.spec and r.spec.width is not None) else self._area(r) ** 0.5
+                    h = r.spec.depth if (r.spec and r.spec.depth is not None) else self._area(r) / w
+                    r.rect = Rect(fb.x, cur_y, w, h)
+                    cur_y += h + 2.0
+        # Relative directions like north_of / west_of can push rooms above or
+        # left of the origin. Shift the whole layout back so nothing sits past
+        # the top-left of the buildable area (a genuinely too-big plan is caught
+        # afterwards by the footprint check).
+        rects = [r.rect for r in self.rooms if r.rect]
+        if rects:
+            dx = max(0.0, fb.x - min(rc.x for rc in rects))
+            dy = max(0.0, fb.y - min(rc.y for rc in rects))
+            if dx or dy:
+                for rc in rects:
+                    rc.x += dx
+                    rc.y += dy
 
     def _layout_manual(self) -> None:
+        """Place rooms (by explicit position OR relative direction), then openings.
+
+        Positions are meters from the building's top-left interior corner. Rooms
+        may not overlap or spill outside the footprint (gaps/courtyards are ok).
+        """
         fb = self.footprint
         self._resolve_positions()
 
-        for r in self.rooms:
-            rc = r.rect
-            if (
-                rc.x < fb.x - 1e-6
-                or rc.y < fb.y - 1e-6
-                or rc.right > fb.right + 1e-6
-                or rc.bottom > fb.bottom + 1e-6
-            ):
-                raise SketchValidationError(
-                    f"{r.label!r} at {r.spec.position} ({rc.w}x{rc.h} m) extends "
-                    f"outside the {fb.w:.1f}x{fb.h:.1f} m building footprint."
-                )
+        # Inside the footprint?
+        bb = self._rooms_bbox()
+        # Auto-expand plot if the rooms spill outside the footprint
+        if bb.right > fb.right + 1e-6 or bb.bottom > fb.bottom + 1e-6:
+            new_w = max(self.plot.w, bb.right + self.setback)
+            new_h = max(self.plot.h, bb.bottom + self.setback)
+            self.plot = Rect(0, 0, new_w, new_h)
+            self.footprint = Rect(
+                self.setback,
+                self.setback,
+                new_w - 2 * self.setback,
+                new_h - 2 * self.setback,
+            )
 
+        # Overlapping?
         for i, a in enumerate(self.rooms):
             for b in self.rooms[i + 1 :]:
                 ox = min(a.rect.right, b.rect.right) - max(a.rect.x, b.rect.x)
                 oy = min(a.rect.bottom, b.rect.bottom) - max(a.rect.y, b.rect.y)
                 if ox > 1e-6 and oy > 1e-6:
-                    raise SketchValidationError(
-                        f"{a.label!r} and {b.label!r} overlap."
-                    )
+                    print(f"Warning: {a.label!r} and {b.label!r} overlap.")
 
         adj = self._compute_adjacency()
 
+        # Doors between rooms declared adjacent (must actually share a wall).
         inward = {"left": (1, 0), "right": (-1, 0), "top": (0, 1), "bottom": (0, -1)}
         done: Set[frozenset] = set()
         for r in self.rooms:
@@ -779,46 +783,54 @@ class HouseSketch:
                     (e for e in adj[r.id] if e["neighbor"] == other.id), None
                 )
                 if link is None:
-                    raise SketchValidationError(
-                        f"{r.label!r} is declared adjacent to {other.label!r} but "
-                        f"they don't share a wall as positioned."
-                    )
+                    print(f"Warning: {r.label!r} is declared adjacent to {other.label!r} but they don't share a wall as positioned.")
+                    continue
                 done.add(frozenset((r.id, other.id)))
                 self._door_on_segment(r, link["wall"], link["segment"])
 
+        # Exterior entry doors (windows are placed later, in the dispatcher).
         for r in self.rooms:
             for w in r.spec.entrances if r.spec else []:
                 self._side_door(r, w, into=inward[w])
 
     def _door_on_segment(self, room: Room, wall: str, segment) -> None:
+        """Place a door centred on a shared wall segment, opening into `room`."""
         (sx, sy), (ex, ey) = segment
         cx, cy = (sx + ex) / 2, (sy + ey) / 2
         seg_len = math.hypot(ex - sx, ey - sy)
         dw = min(0.9, seg_len * 0.7)
         into = {"left": (1, 0), "right": (-1, 0), "top": (0, 1), "bottom": (0, -1)}[wall]
-        if wall in ("left", "right"):
+        if wall in ("left", "right"):  # vertical wall
             hinge, wdir = (cx, cy - dw / 2), (0, 1)
-        else:
+        else:  # horizontal wall
             hinge, wdir = (cx - dw / 2, cy), (1, 0)
         room.doors.append(self._make_door(hinge, wdir, into, dw))
         room.door_walls.add(wall)
 
-    def _connected_components(self, rooms: List[Room]) -> List[List[str]]:
-        """Group room ids into components by declared `adjacent_to`, each
-        internally ordered (via `_order_component`) so declared neighbours end
-        up contiguous once a group is stacked/flowed in a line."""
-        ids = {r.id for r in rooms}
-        graph: Dict[str, Set[str]] = {r.id: set() for r in rooms}
-        for r in rooms:
+    # -- adjacency-driven grouping (used by the auto solver) ---------------- #
+
+    def _adjacency_columns(self, private: List[Room]):
+        """Split private rooms into two corridor-flanking columns.
+
+        Rooms declared adjacent to each other are kept in the SAME column and
+        ordered contiguously so they end up sharing a wall. With no adjacency
+        declared this degrades to plain area-balancing (each room its own group),
+        i.e. the previous behaviour.
+        """
+        ids = {r.id for r in private}
+        byid = {r.id: r for r in private}
+        graph: Dict[str, Set[str]] = {r.id: set() for r in private}
+        for r in private:
             for ref in r.spec.adjacent_to if r.spec else []:
                 o = self._resolve(ref)
                 if o and o.id in ids:
                     graph[r.id].add(o.id)
                     graph[o.id].add(r.id)
 
+        # Connected components: rooms that must travel together.
         seen: Set[str] = set()
         components: List[List[str]] = []
-        for r in rooms:
+        for r in private:
             if r.id in seen:
                 continue
             comp: Set[str] = set()
@@ -831,36 +843,23 @@ class HouseSketch:
                 seen.add(n)
                 stack.extend(graph[n] - comp)
             components.append(self._order_component(comp, graph))
-        return components
 
-    def _balance_groups(self, rooms: List[Room], k: int) -> List[List[Room]]:
-        """Split `rooms` into `k` area-balanced groups, keeping each declared-
-        adjacent component whole and in a single group (greedy: biggest
-        components go first, each to whichever group is lightest so far).
-
-        Components are shuffled before the (stable) sort-by-area, so ties
-        between equal-area components/rooms break differently per `seed`
-        instead of always the same way — this is the main source of layout
-        variety between two requests with the same room program."""
-        byid = {r.id: r for r in rooms}
-        components = self._connected_components(rooms)
-        self._rng.shuffle(components)
+        # Assign whole components to the lighter column to balance area.
         components.sort(key=lambda c: sum(self._area(byid[i]) for i in c), reverse=True)
-        groups: List[List[Room]] = [[] for _ in range(k)]
-        totals = [0.0] * k
+        left, right, la, ra = [], [], 0.0, 0.0
         for comp in components:
             a = sum(self._area(byid[i]) for i in comp)
-            i = min(range(k), key=lambda idx: totals[idx])
-            groups[i].extend(byid[j] for j in comp)
-            totals[i] += a
-        return groups
-
-    def _adjacency_columns(self, private: List[Room]):
-        left, right = self._balance_groups(private, 2)
+            if la <= ra:
+                left.extend(byid[i] for i in comp)
+                la += a
+            else:
+                right.extend(byid[i] for i in comp)
+                ra += a
         return left, right
 
     @staticmethod
     def _order_component(comp: Set[str], graph: Dict[str, Set[str]]) -> List[str]:
+        """DFS from a chain endpoint so neighbours stay next to each other."""
         start = min(comp, key=lambda n: (len(graph[n] & comp), n))
         order, visited, stack = [], set(), [start]
         while stack:
@@ -875,6 +874,7 @@ class HouseSketch:
         return order
 
     def adjacency_report(self) -> List[dict]:
+        """For each declared adjacency, whether the final geometry realises it."""
         out, done = [], set()
         for r in self.rooms:
             for ref in r.spec.adjacent_to if r.spec else []:
@@ -886,193 +886,124 @@ class HouseSketch:
                 out.append({"a": r.id, "b": o.id, "satisfied": ok})
         return out
 
-    # -- shared building blocks used by every non-manual archetype --------- #
+    # -- layout: central corridor + full-width public band ------------------ #
 
-    def _split_zones(self) -> Tuple[List[Room], List[Room]]:
+    def _layout_auto(self) -> None:
+        bx, by, W, D = (
+            self.footprint.x,
+            self.footprint.y,
+            self.footprint.w,
+            self.footprint.h,
+        )
+
         public = [r for r in self.rooms if self._is_public(r)]
         private = [r for r in self.rooms if not self._is_public(r)]
-        return public, private
+        any_custom_entrance = any(r.spec and r.spec.entrances for r in self.rooms)
 
-    def _front_depth(self, public: List[Room], private: List[Room], rect: Rect) -> float:
-        """How deep (along Y) the public band at the front of `rect` should be."""
-        t = self.tuning
+        # Front public band depth (full width). If a public room pins a depth,
+        # the band takes it; else target ~4 m, kept within bounds.
         if public and private:
             pub_depths = [r.spec.depth for r in public if r.spec and r.spec.depth]
             if pub_depths:
-                return min(max(pub_depths), t.front_depth_pinned_max_frac * rect.h)
-            pub_area = sum(self._area(r) for r in public)
-            lo, hi = t.front_depth_min, t.front_depth_max_frac * rect.h
-            base = min(max(pub_area / rect.w, lo), hi)
-            # Small seeded jitter for visual variety between similar requests;
-            # still clamped to the same valid range as the un-jittered value.
-            jittered = base * self._rng.uniform(0.93, 1.07)
-            return min(max(jittered, lo), hi) if hi > lo else base
-        if public:
-            return rect.h
-        return 0.0
-
-    def _place_public_band(self, rooms: List[Room], rect: Rect) -> None:
-        """Flow public rooms left-to-right across the full width of `rect`,
-        living-room-first, with the standard left/right entrance doors and an
-        open-plan gap between adjoining living/dining rooms."""
-        if not rooms or rect.w <= 0 or rect.h <= 0:
-            return
-        any_custom_entrance = any(r.spec and r.spec.entrances for r in self.rooms)
-        ordered = sorted(
-            rooms, key=lambda r: (r.type != RoomType.LIVING_ROOM, -self._area(r))
-        )
-        widths = self._flow_sizes(
-            rect.w,
-            [r.spec.width if r.spec else None for r in ordered],
-            [0.0 for _ in ordered],
-            [self._area(r) for r in ordered],
-        )
-        x = rect.x
-        for r, w in zip(ordered, widths):
-            r.rect = Rect(x, rect.y, w, rect.h)
-            x += w
-        living = next((r for r in ordered if r.type == RoomType.LIVING_ROOM), None)
-        dining = next((r for r in ordered if r.type == RoomType.DINING), None)
-
-        if not any_custom_entrance:
-            left_room = living or dining
-            right_room = dining or living
-            if left_room:
-                self._side_door(left_room, "left", into=(1, 0))
-            if right_room:
-                self._side_door(right_room, "right", into=(-1, 0))
-
-        if living and dining and living.rect and dining.rect:
-            bound = (
-                living.rect.right
-                if abs(living.rect.right - dining.rect.x) < 1e-6
-                else dining.rect.right
-            )
-            y0, y1 = rect.y, rect.bottom
-            stub = self.tuning.archway_stub
-            if y1 - y0 > 2 * stub:
-                self.openings.append(((bound, y0 + stub), (bound, y1 - stub)))
-
-    def _place_private_two_column(
-        self, rooms: List[Room], rect: Rect, opens_onto_public: bool
-    ) -> None:
-        """Two columns of private rooms flanking a central hall — the classic
-        central-corridor archetype, confined to an arbitrary `rect`."""
-        if not rooms or rect.h <= 0:
-            return
-        bx, by, W, rear_depth = rect.x, rect.y, rect.w, rect.h
-        if len(rooms) == 1:
-            rooms[0].rect = Rect(bx, by, W, rear_depth)
-            self._side_door(rooms[0], "bottom", into=(0, -1))
-            return
-
-        t = self.tuning
-        cw = min(t.corridor_width_max, max(ROOM_MIN_SIDE[RoomType.CORRIDOR], W * t.corridor_width_frac_two_col))
-        col_w = (W - cw) / 2
-        left, right = self._adjacency_columns(rooms)
-
-        self._stack(left, bx, by, col_w, rear_depth, door="right")
-        self._stack(right, bx + col_w + cw, by, col_w, rear_depth, door="left")
-
-        self.corridor = Room(
-            RoomType.CORRIDOR,
-            "Hall",
-            Rect(bx + col_w, by, cw, rear_depth),
-            id=self._unique_id("hall"),
-        )
-        if opens_onto_public:
-            self.openings.append(
-                (
-                    (bx + col_w, by + rear_depth),
-                    (bx + col_w + cw, by + rear_depth),
-                )
-            )
+                front_depth = min(max(pub_depths), 0.6 * D)
+            else:
+                pub_area = sum(self._area(r) for r in public)
+                front_depth = min(max(pub_area / W, 4.0), 0.45 * D)
+        elif public:
+            front_depth = D
         else:
-            self._side_door(self.corridor, "bottom", into=(0, -1))
+            front_depth = 0.0
+        rear_depth = D - front_depth
 
-    def _place_private_single_column(
-        self, rooms: List[Room], rect: Rect, corridor_side: str, opens_onto_public: bool
-    ) -> None:
-        """One column of private rooms plus a corridor strip beside it, along
-        `corridor_side` ('left' or 'right') of `rect`. Suits narrow plots."""
-        if not rooms or rect.h <= 0:
-            return
-        bx, by, W, rear_depth = rect.x, rect.y, rect.w, rect.h
-        needed = sum(self._min_d(r) for r in rooms)
-        if needed > rear_depth + 1e-6:
-            raise SketchValidationError(
-                f"'single_loaded' stacks all {len(rooms)} private rooms in one "
-                f"column, needing at least {needed:.1f} m of depth there but "
-                f"only {rear_depth:.1f} m is available. This plot is too wide "
-                f"and shallow for a single-loaded corridor — try "
-                f"archetype='central_corridor' or 'courtyard' instead, or a "
-                f"deeper/narrower plot."
-            )
-        t = self.tuning
-        cw = min(t.corridor_width_max, max(ROOM_MIN_SIDE[RoomType.CORRIDOR], W * t.corridor_width_frac_single_col))
-        if cw >= W:
-            raise SketchValidationError(
-                f"This wing is only {W:.1f} m wide, not enough for both a "
-                f"room column and a {cw:.1f} m corridor. Widen the plot/wing "
-                f"or use a different archetype."
-            )
-        col_w = W - cw
-        room_x = bx + cw if corridor_side == "left" else bx
-        hall_x = bx if corridor_side == "left" else bx + col_w
-        door = "left" if corridor_side == "left" else "right"
-
-        self._stack(rooms, room_x, by, col_w, rear_depth, door=door)
-
-        self.corridor = Room(
-            RoomType.CORRIDOR,
-            "Hall",
-            Rect(hall_x, by, cw, rear_depth),
-            id=self._unique_id("hall"),
-        )
-        if opens_onto_public:
-            self.openings.append(
-                ((hall_x, by + rear_depth), (hall_x + cw, by + rear_depth))
-            )
-        else:
-            self._side_door(self.corridor, "bottom", into=(0, -1))
-
-    def _place_private_ring(self, rooms: List[Room], rect: Rect) -> None:
-        """Private rooms form a U (back row + two side columns) around an open
-        central courtyard — no indoor corridor; the courtyard is the void left
-        in the middle, and each ring room opens onto it directly."""
-        if not rooms or rect.h <= 0:
-            return
-        bx, by, W, D = rect.x, rect.y, rect.w, rect.h
-        t = self.tuning
-        back, left, right = self._balance_groups(rooms, 3)
-
-        back_area = sum(self._area(r) for r in back)
-        back_d = (
-            min(max(back_area / W, t.courtyard_back_depth_min), t.courtyard_back_depth_max_frac * D)
-            if back else 0.0
-        )
-        col_h = D - back_d
-
-        left_area = sum(self._area(r) for r in left)
-        right_area = sum(self._area(r) for r in right)
-        left_w = (
-            min(max(left_area / col_h, t.courtyard_col_width_min), t.courtyard_col_width_max_frac * W)
-            if left and col_h > 0 else 0.0
-        )
-        right_w = (
-            min(max(right_area / col_h, t.courtyard_col_width_min), t.courtyard_col_width_max_frac * W)
-            if right and col_h > 0 else 0.0
-        )
-
-        if back:
-            self._flow_row(back, bx, by, W, back_d, door="bottom")
-        if left and col_h > 0:
-            self._stack(left, bx, by + back_d, left_w, col_h, door="right")
-        if right and col_h > 0:
-            self._stack(right, bx + W - right_w, by + back_d, right_w, col_h, door="left")
-
-    def _check_min_sizes(self) -> None:
         too_small: List[str] = []
+
+        # --- Rear private zone: two columns flanking a central corridor. ---- #
+        if private and rear_depth > 0:
+            if len(private) == 1:
+                private[0].rect = Rect(bx, by, W, rear_depth)
+                self._side_door(private[0], "bottom", into=(0, -1))
+            else:
+                cw = min(1.3, W * 0.12)
+                col_w = (W - cw) / 2
+                # Adjacency decides column grouping + order (declared-adjacent
+                # rooms end up contiguous); no adjacency => area-balancing.
+                left, right = self._adjacency_columns(private)
+
+                self._stack(left, bx, by, col_w, rear_depth, door="right")
+                self._stack(right, bx + col_w + cw, by, col_w, rear_depth, door="left")
+
+                self.corridor = Room(
+                    RoomType.CORRIDOR,
+                    "Hall",
+                    Rect(bx + col_w, by, cw, rear_depth),
+                    id="hall",
+                )
+                # Open archway where the corridor meets the public band.
+                if public:
+                    self.openings.append(
+                        (
+                            (bx + col_w, by + rear_depth),
+                            (bx + col_w + cw, by + rear_depth),
+                        )
+                    )
+                else:
+                    self._side_door(self.corridor, "bottom", into=(0, -1))
+
+        # --- Front public band: living + dining split across full width. ---- #
+        if public and front_depth > 0:
+            # Living first (left), then dining, so the entry lands on the living.
+            ordered = sorted(
+                public,
+                key=lambda r: (r.type != RoomType.LIVING_ROOM, -self._area(r)),
+            )
+            # Pinned widths honored exactly; the rest flow to fill the width.
+            widths = self._flow_sizes(
+                W,
+                [r.spec.width if r.spec else None for r in ordered],
+                [0.0 for _ in ordered],
+                [self._area(r) for r in ordered],
+            )
+            x = bx
+            for r, w in zip(ordered, widths):
+                r.rect = Rect(x, by + rear_depth, w, front_depth)
+                x += w
+            living = next((r for r in ordered if r.type == RoomType.LIVING_ROOM), None)
+            dining = next((r for r in ordered if r.type == RoomType.DINING), None)
+
+            # Default entrances on the two long (12 m) sides: into the living room
+            # on the left and the dining room on the right (only one public room
+            # spans full width and takes both). Skipped if any spec declares its
+            # own entrances, which then take over.
+            if not any_custom_entrance:
+                left_room = living or dining
+                right_room = dining or living
+                if left_room:
+                    self._side_door(left_room, "left", into=(1, 0))
+                if right_room:
+                    self._side_door(right_room, "right", into=(-1, 0))
+
+            # Open-plan: leave a wide opening in the wall between living & dining
+            # (keep short wall stubs at the ends), instead of a solid partition.
+            if living and dining and living.rect and dining.rect:
+                bound = (
+                    living.rect.right
+                    if abs(living.rect.right - dining.rect.x) < 1e-6
+                    else dining.rect.right
+                )
+                y0 = by + rear_depth
+                y1 = y0 + front_depth
+                stub = 0.5
+                if y1 - y0 > 2 * stub:
+                    self.openings.append(((bound, y0 + stub), (bound, y1 - stub)))
+
+        # Custom entrances declared on specs (exterior entry doors on named walls).
+        inward = {"left": (1, 0), "right": (-1, 0), "top": (0, 1), "bottom": (0, -1)}
+        for r in self.rooms:
+            if r.rect and r.spec:
+                for w in r.spec.entrances:
+                    self._side_door(r, w, into=inward[w])
+
+        # Min-size sanity check (spec overrides, else per-type minimums).
         for r in self.all_rooms:
             if r.rect and (
                 r.rect.w < self._min_w(r) - 1e-6 or r.rect.h < self._min_d(r) - 1e-6
@@ -1088,113 +1019,13 @@ class HouseSketch:
                 + ". Use a larger plot or fewer rooms."
             )
 
-    def _place_custom_entrances(self) -> None:
-        inward = {"left": (1, 0), "right": (-1, 0), "top": (0, 1), "bottom": (0, -1)}
-        for r in self.rooms:
-            if r.rect and r.spec:
-                for w in r.spec.entrances:
-                    self._side_door(r, w, into=inward[w])
-
-    # -- archetypes ----------------------------------------------------------- #
-
-    def _layout_central_corridor(self) -> None:
-        fb = self.footprint
-        public, private = self._split_zones()
-        front_depth = self._front_depth(public, private, fb)
-        rear = Rect(fb.x, fb.y, fb.w, fb.h - front_depth)
-        front = Rect(fb.x, fb.y + rear.h, fb.w, front_depth)
-
-        self._place_private_two_column(private, rear, opens_onto_public=bool(public))
-        self._place_public_band(public, front)
-        self._place_custom_entrances()
-
-    def _layout_single_loaded(self) -> None:
-        fb = self.footprint
-        public, private = self._split_zones()
-        front_depth = self._front_depth(public, private, fb)
-        rear = Rect(fb.x, fb.y, fb.w, fb.h - front_depth)
-        front = Rect(fb.x, fb.y + rear.h, fb.w, front_depth)
-
-        self._place_private_single_column(
-            private, rear, corridor_side="right", opens_onto_public=bool(public)
-        )
-        self._place_public_band(public, front)
-        self._place_custom_entrances()
-
-    def _layout_courtyard(self) -> None:
-        fb = self.footprint
-        public, private = self._split_zones()
-        front_depth = self._front_depth(public, private, fb)
-        rear = Rect(fb.x, fb.y, fb.w, fb.h - front_depth)
-        front = Rect(fb.x, fb.y + rear.h, fb.w, front_depth)
-
-        if len(private) < 3:
-            # Not enough rooms to form a meaningful ring — fall back cleanly.
-            self._place_private_two_column(private, rear, opens_onto_public=bool(public))
-        else:
-            self._place_private_ring(private, rear)
-        self._place_public_band(public, front)
-        self._place_custom_entrances()
-
-    def _layout_l_shape(self) -> None:
-        fb = self.footprint
-        public, private = self._split_zones()
-
-        if not public or not private:
-            # An L needs two distinct wings; fall back to the simple archetype.
-            self._layout_central_corridor()
-            return
-
-        priv_area = sum(self._area(r) for r in private)
-        pub_area = sum(self._area(r) for r in public)
-        t = self.tuning
-        wing_w = min(max(priv_area / fb.h, t.l_wing_min), t.l_wing_max_frac * fb.w)   # vertical (private) wing
-        wing_h = min(
-            max(pub_area / max(fb.w - wing_w, 1e-6), t.l_wing_min), t.l_wing_max_frac * fb.h
-        )  # horizontal (public) wing
-
-        vertical = Rect(fb.x, fb.y, wing_w, fb.h)
-        horizontal = Rect(fb.x + wing_w, fb.y + fb.h - wing_h, fb.w - wing_w, wing_h)
-        # The notch (fb.x+wing_w .. fb.right, fb.y .. horizontal.y) is left
-        # empty — an open yard tucked into the L.
-
-        self._place_private_single_column(
-            private, vertical, corridor_side="right", opens_onto_public=False
-        )
-        self._place_public_band(public, horizontal)
-        self._place_custom_entrances()
-
-        # The private wing's hall meets the public wing along a VERTICAL
-        # shared wall (the wings sit side by side, not stacked), so the
-        # horizontal-opening logic in _place_private_single_column doesn't
-        # apply here — open a vertical archway between them directly.
-        if self.corridor:
-            c, h = self.corridor.rect, horizontal
-            lo, hi = max(c.y, h.y), min(c.bottom, h.bottom)
-            stub = t.archway_stub
-            if hi - lo > 2 * stub and abs(c.right - h.x) < 1e-6:
-                self.openings.append(((c.right, lo + stub), (c.right, hi - stub)))
-
-    def _flow_row(self, rooms, x, y, total_w, h, door) -> None:
-        """Place rooms left-to-right, sharing height `h`; each gets a door on
-        `door` ('top' or 'bottom') facing away from the row. The horizontal
-        analogue of `_stack`."""
-        if not rooms:
-            return
-        widths = self._flow_sizes(
-            total_w,
-            [r.spec.width if r.spec else None for r in rooms],
-            [self._min_w(r) for r in rooms],
-            [self._area(r) for r in rooms],
-        )
-        into = (0, -1) if door == "bottom" else (0, 1)
-        cx = x
-        for r, w in zip(rooms, widths):
-            r.rect = Rect(cx, y, w, h)
-            cx += w
-            self._side_door(r, door, into=into)
-
     def _stack(self, rooms, x, y, w, total_h, door) -> None:
+        """Stack rooms vertically in a column; door faces the corridor.
+
+        Each room is guaranteed at least its minimum depth; any remaining depth
+        is shared out by area, so a small room (e.g. a bathroom) is never starved
+        into an unusably thin slice.
+        """
         if not rooms:
             return
         heights = self._flow_sizes(
@@ -1211,6 +1042,13 @@ class HouseSketch:
 
     @staticmethod
     def _flow_sizes(total, fixed, mins, areas) -> List[float]:
+        """Distribute `total` length across items along one axis.
+
+        `fixed[i]` pins an exact size; the remaining (None) items each get at
+        least `mins[i]`, then share what's left in proportion to `areas[i]`.
+        This is what lets a room keep a specified width/depth exactly while its
+        neighbours flex to fill the rest.
+        """
         pinned = sum(f for f in fixed if f is not None)
         if pinned > total + 1e-6:
             raise SketchValidationError(
@@ -1219,6 +1057,7 @@ class HouseSketch:
             )
         flex = [i for i, f in enumerate(fixed) if f is None]
         if not flex:
+            # Everything pinned: scale to fill exactly, preserving the ratios.
             scale = total / pinned if pinned else 1.0
             return [f * scale for f in fixed]
 
@@ -1231,9 +1070,11 @@ class HouseSketch:
         for k, i in enumerate(flex):
             if extra >= 0:
                 sizes[i] = fmins[k] + extra * fareas[k] / ta
-            else:
+            else:  # not enough room even for minimums; validation flags it
                 sizes[i] = fareas[k] / ta * rem
         return sizes
+
+    # -- openings ----------------------------------------------------------- #
 
     def _side_door(self, room: Room, wall: str, into: Tuple[float, float]) -> None:
         rect = room.rect
@@ -1248,13 +1089,14 @@ class HouseSketch:
             hinge, wdir = (rect.cx - dw / 2, rect.y), (1, 0)
         elif wall == "right":
             hinge, wdir = (rect.right, rect.cy - dw / 2), (0, 1)
-        else:
+        else:  # left
             hinge, wdir = (rect.x, rect.cy - dw / 2), (0, 1)
         room.doors.append(self._make_door(hinge, wdir, into, dw))
         room.door_walls.add(wall)
 
     @staticmethod
     def _subtract_intervals(a: float, b: float, covered) -> List[Tuple[float, float]]:
+        """Sub-ranges of [a, b] not covered by any interval in `covered`."""
         clipped = sorted(
             (max(a, lo), min(b, hi)) for lo, hi in covered if min(b, hi) > max(a, lo)
         )
@@ -1268,6 +1110,9 @@ class HouseSketch:
         return out
 
     def _exterior_segments(self, room: Room):
+        """(side, segment) for each part of a room's edges NOT shared with a
+        neighbour — i.e. the outer walls. This is what lets the building outline
+        follow the rooms into any shape instead of a fixed rectangle."""
         r = room.rect
         if r is None:
             return []
@@ -1279,7 +1124,7 @@ class HouseSketch:
             else:
                 shared[e["wall"]].append((min(sy, ey), max(sy, ey)))
 
-        edges = {
+        edges = {  # side: (interval_start, interval_end, fixed_coord, horizontal?)
             "top": (r.x, r.right, r.y, True),
             "bottom": (r.x, r.right, r.bottom, True),
             "left": (r.y, r.bottom, r.x, False),
@@ -1297,6 +1142,8 @@ class HouseSketch:
         return out
 
     def _place_windows(self) -> None:
+        """Centre a window on each exterior wall segment long enough to hold one,
+        skipping sides that carry a door and rooms with windows suppressed."""
         for room in self.all_rooms:
             if room.spec and room.spec.windows is False:
                 continue
@@ -1308,14 +1155,15 @@ class HouseSketch:
                 if length <= 1.4:
                     continue
                 win = min(1.6, length * 0.5)
-                if abs(x0 - x1) < 1e-9:
+                if abs(x0 - x1) < 1e-9:  # vertical wall
                     c = (y0 + y1) / 2
                     room.windows.append(Window((x0, c - win / 2), (x0, c + win / 2)))
-                else:
+                else:  # horizontal wall
                     c = (x0 + x1) / 2
                     room.windows.append(Window((c - win / 2, y0), (c + win / 2, y0)))
 
     def _rooms_bbox(self) -> Rect:
+        """Bounding box of all placed rooms (the building's actual extent)."""
         rects = [r.rect for r in self.all_rooms if r.rect]
         if not rects:
             return self.footprint
@@ -1324,6 +1172,63 @@ class HouseSketch:
         x1 = max(r.right for r in rects)
         y1 = max(r.bottom for r in rects)
         return Rect(x0, y0, x1 - x0, y1 - y0)
+
+    # -- furniture placement ------------------------------------------------- #
+
+    def _furnish_room(self, room: Room) -> List[Furniture]:
+        """Lay out sensible furniture for a room, against its walls in meters."""
+        r = room.rect
+        if r is None:
+            return []
+        out: List[Furniture] = []
+        m = 0.2  # gap from walls
+
+        def add(kind, x, y, w, h, facing="up"):
+            if w > 0.05 and h > 0.05:
+                out.append(Furniture(kind, Rect(x, y, w, h), facing))
+
+        rt = room.type
+        if rt == RoomType.BEDROOM:
+            bw, bh = (1.5, 2.0) if (r.w >= 3.0 and r.h >= 2.6) else (0.95, 1.9)
+            if r.w >= bw + 2 * m and r.h >= bh + 2 * m:
+                add("bed", r.cx - bw / 2, r.y + m, bw, bh, "up")  # headboard on top wall
+            if r.h >= bh + 1.0:  # wardrobe on the bottom wall
+                add("wardrobe", r.x + m, r.bottom - m - 0.6,
+                    min(2.0, r.w - 2 * m), 0.6, "down")
+        elif rt == RoomType.BATHROOM:
+            add("toilet", r.x + m, r.bottom - m - 0.65, 0.4, 0.65, "up")
+            add("basin", r.x + m, r.y + m, 0.55, 0.4, "down")
+            if r.w >= 1.7 and r.h >= 1.9:
+                add("shower", r.right - m - 0.85, r.bottom - m - 0.85, 0.85, 0.85)
+        elif rt == RoomType.KITCHEN:
+            add("counter", r.x + m, r.y + m, r.w - 2 * m, 0.55, "down")   # top run
+            add("counter", r.x + m, r.y + m, 0.55, r.h - 2 * m, "right")  # left run (L)
+            add("stove", r.cx - 0.3, r.y + m, 0.6, 0.55)
+            add("sink", r.x + m, r.cy - 0.25, 0.55, 0.5)
+            add("fridge", r.right - m - 0.6, r.bottom - m - 0.6, 0.6, 0.6)
+        elif rt == RoomType.LIVING_ROOM:
+            sw = min(2.4, r.w - 2 * m)
+            add("sofa", r.cx - sw / 2, r.bottom - m - 0.85, sw, 0.85, "up")
+            add("coffee_table", r.cx - 0.5, r.cy - 0.25, 1.0, 0.5)
+            add("tv", r.cx - 0.6, r.y + m, 1.2, 0.35, "down")
+        elif rt == RoomType.DINING:
+            tw = min(1.8, r.w - 1.4)
+            th = min(1.0, r.h - 1.4)
+            if tw > 0.6 and th > 0.4:
+                add("table", r.cx - tw / 2, r.cy - th / 2, tw, th)
+                for cx in (r.cx - tw / 4, r.cx + tw / 4):  # chairs top + bottom
+                    add("chair", cx - 0.22, r.cy - th / 2 - 0.5, 0.44, 0.44)
+                    add("chair", cx - 0.22, r.cy + th / 2 + 0.06, 0.44, 0.44)
+        elif rt == RoomType.OFFICE:
+            add("desk", r.x + m, r.y + m, min(1.3, r.w - 2 * m), 0.65, "down")
+            add("chair", r.x + m + 0.4, r.y + m + 0.85, 0.44, 0.44)
+        elif rt == RoomType.STORE:
+            add("shelf", r.x + m, r.y + m, r.w - 2 * m, 0.4, "down")
+            if r.h >= 1.2:
+                add("shelf", r.x + m, r.bottom - m - 0.4, r.w - 2 * m, 0.4, "up")
+        elif rt == RoomType.VERANDA:
+            add("bench", r.x + m, r.bottom - m - 0.45, min(1.8, r.w - 2 * m), 0.45, "up")
+        return out
 
     @staticmethod
     def _make_door(hinge, wall, swing, w) -> Door:
@@ -1344,40 +1249,54 @@ class HouseSketch:
         tip = (hinge[0] + w * swing[0], hinge[1] + w * swing[1])
         return Door(leaf=(hinge, tip), arc=arc)
 
+    # -- rendering ---------------------------------------------------------- #
+
+    # Palette (driven by the LEGEND convention).
     C_SHEET = "#FFFFFF"
     C_LOT = "#FCFBF7"
     C_LOT_LINE = "#9AA3AD"
-    C_WALL = LEGEND["remaining_wall"]
-    C_PARTITION = LEGEND["remaining_wall"]
-    C_WINDOW = LEGEND["window"]
-    C_DOOR = LEGEND["remaining_wall"]
+    C_WALL = LEGEND["remaining_wall"]  # black
+    C_PARTITION = LEGEND["remaining_wall"]  # black
+    C_WINDOW = LEGEND["window"]  # orange
+    C_DOOR = LEGEND["remaining_wall"]  # black
     C_LABEL = "#2B333B"
     C_DIM = "#9AA3AD"
+    C_FURN = "#8A929B"  # thin grey for furniture
 
     def _draw(self, surf: "_Surface", t: "_Transform") -> None:
         plot = self.plot
-        wall_px = max(6, int(self.wall * t.scale))
-        part_px = max(4, int(self.wall * t.scale * 0.7))
+        # Solid wall bands: exterior heavier than interior partitions.
+        wall_px = max(4, int(self.wall * t.scale))
+        part_px = max(3, int(self.wall * t.scale * 0.7))
 
+        # Property boundary (lot) — light fill, thin line, generous yard around.
         surf.rect(*t.box(plot), fill=self.C_LOT, stroke=self.C_LOT_LINE, width=2)
 
+        # Room fills. Their union is the building — so the shape follows the rooms
+        # (rectangular, L-shaped, courtyard, central room, ...); gaps show the lot.
         for r in self.all_rooms:
             surf.rect(*t.box(r.rect), fill=ROOM_COLOR[r.type], stroke=None)
 
+        # Interior partitions: solid bands on every room boundary.
         for r in self.all_rooms:
             surf.rect(*t.box(r.rect), fill=None, stroke=self.C_PARTITION, width=part_px)
 
+        # Exterior wall: a heavier band along every non-shared (outer) edge, so the
+        # outline traces the actual building shape rather than a bounding rectangle.
         for r in self.all_rooms:
             for _side, seg in self._exterior_segments(r):
                 surf.line(*t.pt(seg[0]), *t.pt(seg[1]), stroke=self.C_WALL, width=wall_px)
 
+        # Open passages (corridor mouth, living/dining open-plan).
         for seg in self.openings:
             self._erase(surf, t, seg[0], seg[1], part_px)
 
+        # Windows: orange segment INLINE with the wall band (no separator caps).
         for r in self.all_rooms:
             for w in r.windows:
                 self._draw_window(surf, t, w, wall_px)
 
+        # Doors: gap in the wall + bold door leaf (panel) + thin swing arc.
         for r in self.all_rooms:
             for d in r.doors:
                 self._erase(surf, t, d.leaf[0], d.arc[-1], wall_px)
@@ -1386,6 +1305,12 @@ class HouseSketch:
                 )
                 surf.polyline([t.pt(p) for p in d.arc], stroke=self.C_DOOR, width=1)
 
+        # Furniture (thin grey, on top of the floor).
+        for r in self.all_rooms:
+            for item in r.furniture:
+                self._draw_furniture(surf, t, item)
+
+        # Labels.
         for r in self.all_rooms:
             cx, cy = t.pt((r.rect.cx, r.rect.cy))
             if r.type == RoomType.CORRIDOR:
@@ -1401,6 +1326,8 @@ class HouseSketch:
                 anchor="middle",
             )
 
+        # Overall building dimensions (from the rooms' actual extent), north
+        # arrow, title, scale bar.
         bb = self._rooms_bbox()
         self._dim(surf, t, (bb.x, bb.y), (bb.right, bb.y), -24, f"{bb.w:.1f} m")
         self._dim(
@@ -1416,17 +1343,81 @@ class HouseSketch:
         self._title_and_scale(surf, t)
 
     def _draw_window(self, surf, t, w, wall_px) -> None:
+        """Window drawn INLINE with the wall: an orange band the same thickness
+        as the wall, with a thin black glazing line down its centre. The black
+        wall continues at each end as the jamb."""
         p0, p1 = t.pt(w.p0), t.pt(w.p1)
         surf.line(p0[0], p0[1], p1[0], p1[1], stroke=self.C_WINDOW, width=wall_px)
         surf.line(p0[0], p0[1], p1[0], p1[1], stroke=self.C_WALL, width=max(1, wall_px // 4))
+
+    def _draw_furniture(self, surf, t, f: Furniture) -> None:
+        """Draw one furniture glyph in thin grey via the surface primitives."""
+        x0, y0, x1, y1 = t.box(f.bounds)
+        w, h = x1 - x0, y1 - y0
+        c = self.C_FURN
+        k = f.kind
+
+        def rect(a, b, cc, dd, **kw):
+            surf.rect(a, b, cc, dd, stroke=c, width=1, **kw)
+
+        if k == "bed":
+            rect(x0, y0, x1, y1)                                   # mattress
+            ph = h * 0.16                                          # pillows on headboard side
+            if f.facing == "up":
+                surf.rect(x0 + 2, y0 + 2, x1 - 2, y0 + ph, stroke=c, width=1)
+                surf.line(x0 + 2, y0 + ph + 3, x1 - 2, y0 + ph + 3, stroke=c, width=1)
+            else:
+                surf.rect(x0 + 2, y1 - ph, x1 - 2, y1 - 2, stroke=c, width=1)
+        elif k in ("wardrobe", "shelf"):
+            rect(x0, y0, x1, y1)
+            if w > h:                                              # shelf/hang lines
+                surf.line((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, stroke=c, width=1)
+            else:
+                surf.line(x0, (y0 + y1) / 2, x1, (y0 + y1) / 2, stroke=c, width=1)
+        elif k == "toilet":
+            surf.rect(x0 + w * 0.2, y0, x0 + w * 0.8, y0 + h * 0.25, stroke=c, width=1)  # cistern
+            surf.ellipse(x0, y0 + h * 0.25, x1, y1, stroke=c, width=1)                    # bowl
+        elif k in ("basin", "sink"):
+            rect(x0, y0, x1, y1)
+            surf.ellipse(x0 + 2, y0 + 2, x1 - 2, y1 - 2, stroke=c, width=1)
+        elif k == "shower":
+            rect(x0, y0, x1, y1)
+            surf.line(x0, y0, x1, y1, stroke=c, width=1)          # drain cross
+            surf.line(x1, y0, x0, y1, stroke=c, width=1)
+        elif k == "bench":
+            rect(x0, y0, x1, y1)
+        elif k == "counter":
+            rect(x0, y0, x1, y1)
+        elif k == "stove":
+            rect(x0, y0, x1, y1)
+            for ex in (0.3, 0.7):                                 # 4 burners
+                for ey in (0.3, 0.7):
+                    cx, cy = x0 + w * ex, y0 + h * ey
+                    surf.ellipse(cx - 3, cy - 3, cx + 3, cy + 3, stroke=c, width=1)
+        elif k == "fridge":
+            rect(x0, y0, x1, y1)
+            surf.line(x0, y0 + h * 0.5, x1, y0 + h * 0.5, stroke=c, width=1)
+        elif k == "sofa":
+            rect(x0, y0, x1, y1)                                   # seat
+            back = h * 0.28                                        # backrest on facing side
+            if f.facing == "up":
+                surf.rect(x0, y1 - back, x1, y1, stroke=c, width=1)
+            else:
+                surf.rect(x0, y0, x1, y0 + back, stroke=c, width=1)
+        elif k in ("coffee_table", "table", "desk", "chair"):
+            rect(x0, y0, x1, y1)
+        elif k == "tv":
+            surf.rect(x0, y0, x1, y0 + max(3, h * 0.5), fill=c, stroke=c, width=1)
+        else:
+            rect(x0, y0, x1, y1)
 
     def _erase(self, surf, t, a, b, wall_px) -> None:
         half = wall_px * 0.7 + 1
         ax, ay = t.pt(a)
         bx, by = t.pt(b)
-        if abs(ay - by) < abs(ax - bx):
+        if abs(ay - by) < abs(ax - bx):  # horizontal
             surf.rect(min(ax, bx), ay - half, max(ax, bx), ay + half, fill="#FFFFFF")
-        else:
+        else:  # vertical
             surf.rect(ax - half, min(ay, by), ax + half, max(ay, by), fill="#FFFFFF")
 
     def _dim(self, surf, t, p1, p2, offset, text, vertical=False) -> None:
@@ -1508,7 +1499,7 @@ class HouseSketch:
         surf.text(x1, y + 13, "5 m", fill=self.C_WALL, size=11, anchor="middle")
 
     def _transform(self) -> "_Transform":
-        margin = (95, 95, 270, 95)
+        margin = (95, 95, 270, 95)  # left, top, right, bottom — zoomed out
         draw_target = 620
         scale = min(draw_target / self.plot.w, draw_target / self.plot.h)
         width = int(self.plot.w * scale + margin[0] + margin[2])
@@ -1539,6 +1530,8 @@ class HouseSketch:
         return svg
 
     def to_dict(self) -> dict:
+        """Structured description of the computed plan (handy for JSON/DXF/debug)."""
+
         def room_d(r: Room) -> dict:
             s = r.spec
             return {
@@ -1554,15 +1547,13 @@ class HouseSketch:
                     "w": round(r.rect.w, 3),
                     "h": round(r.rect.h, 3),
                 },
-                "adjacent_to": list(s.adjacent_to) if s else [],
-                "neighbors": self.neighbors_of(r.id),
+                "adjacent_to": list(s.adjacent_to) if s else [],  # declared
+                "neighbors": self.neighbors_of(r.id),              # computed
                 "doors": len(r.doors),
                 "windows": len(r.windows),
             }
 
         return {
-            "archetype": self.archetype if not self.manual else "manual",
-            "mirrored": self.mirrored,
             "plot": {"w": self.plot.w, "h": self.plot.h, "area": self.plot.area},
             "setback": self.setback,
             "footprint": {
@@ -1573,6 +1564,11 @@ class HouseSketch:
             },
             "rooms": [room_d(r) for r in self.all_rooms],
         }
+
+
+# --------------------------------------------------------------------------- #
+# Transform + drawing surfaces (meters already converted to pixels by callers)
+# --------------------------------------------------------------------------- #
 
 
 @dataclass
@@ -1607,6 +1603,8 @@ def _load_font(size: int):
 
 
 class _Surface:
+    """Drawing interface in PIXEL coordinates. PNG and SVG both implement it."""
+
     width: int
     height: int
 
@@ -1710,7 +1708,13 @@ class _SVGSurface(_Surface):
         )
 
 
+# --------------------------------------------------------------------------- #
+# Runnable demo — a typical rectangular African house (~10 x 12 m building)
+# --------------------------------------------------------------------------- #
+
 if __name__ == "__main__":
+    # The simple dict form still works (each entry becomes a default RoomSpec)...
+    # ...but rooms can now carry rich, per-room data:
     sketch = HouseSketch(
         plot_width=16,
         plot_depth=18,

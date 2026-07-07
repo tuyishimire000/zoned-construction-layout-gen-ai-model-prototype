@@ -18,9 +18,11 @@ def generate_floorplan(params: dict, compliance: dict, export_format: str = "png
     """Build the layout model and render it to the specified format and DXF. 
     Returns (image_data, dxf_data, score).
     """
-    plan = build_floorplan(params, compliance)
+    import base64
+    plan, hs = build_floorplan(params, compliance)
     
     doc, dxf_data = render_dxf(plan)
-    img_data = export_to_svg(doc)
+    raw_svg = hs.to_svg()
+    img_data = "data:image/svg+xml;base64," + base64.b64encode(raw_svg.encode('utf-8')).decode('ascii')
     
     return img_data, dxf_data, plan.score

@@ -7,6 +7,7 @@ import './index.css';
 function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(!!localStorage.getItem('token'));
   const [isLogin, setIsLogin] = useState(true);
   const [docView, setDocView] = useState(null); // 'terms', 'privacy', 'forgot-password', 'reset-password', 'verify-pending', 'verify-processing'
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -56,6 +57,7 @@ function App() {
   
   const [sessionId, setSessionId] = useState(null);
   const [sessions, setSessions] = useState([]);
+  const [activeMenuId, setActiveMenuId] = useState(null);
   
   const [messages, setMessages] = useState([
     { role: 'assistant', content: 'Hello — I\'m your AI architect. What kind of building would you like to design today?' }
@@ -95,7 +97,12 @@ function App() {
       })
       .catch(() => {
         logout();
+      })
+      .finally(() => {
+        setIsAuthLoading(false);
       });
+    } else {
+      setIsAuthLoading(false);
     }
   }, [token]);
 
@@ -148,6 +155,23 @@ function App() {
       }
     } catch (err) {
       setAuthError(err.message);
+    }
+  };
+
+  const handleShareSession = async (id) => {
+    setActiveMenuId(null);
+    try {
+      const res = await fetch(`/api/session/${id}/share`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error("Failed to share session");
+      const data = await res.json();
+      navigator.clipboard.writeText(window.location.origin + data.url);
+      alert("Session link copied to clipboard!");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to share session");
     }
   };
 
@@ -477,6 +501,20 @@ function App() {
     );
   }
 
+  if (isAuthLoading) {
+    return (
+      <div className="auth-layout" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <div style={{ color: 'var(--text-hi)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+          <div className="spinner" style={{ width: '32px', height: '32px', border: '3px solid var(--line)', borderTopColor: 'var(--cyan)', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+          <div style={{ fontSize: '14px' }}>Authenticating...</div>
+        </div>
+        <style>{`
+          @keyframes spin { 100% { transform: rotate(360deg); } }
+        `}</style>
+      </div>
+    );
+  }
+
   if (!user && !(sessionId && sessionIsPublic)) {
     return (
       <div className="auth-layout">
@@ -655,15 +693,38 @@ function App() {
               <div 
                 key={s.id} 
                 className={`project-row ${sessionId === s.id ? 'active' : ''}`}
-                onClick={() => loadSession(s.id)}
+                style={{ position: 'relative' }}
               >
-                <div className="project-icon">
+                <div className="project-icon" onClick={() => loadSession(s.id)}>
                   <svg viewBox="0 0 16 16" fill="none"><path d="M2 14V6L8 2L14 6V14" stroke="currentColor" strokeWidth="1.4"/><path d="M5 14V9H11V14" stroke="currentColor" strokeWidth="1.4"/></svg>
                 </div>
-                <div className="project-meta">
-                  <div className="name">Project {s.id.substring(0,6)}</div>
+                <div className="project-meta" onClick={() => loadSession(s.id)} style={{ flex: 1, overflow: 'hidden' }}>
+                  <div className="name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.title || `Project ${s.id.substring(0,6)}`}</div>
                   <div className="date">{new Date(s.updated_at).toLocaleDateString('en-US', {month:'2-digit', day:'2-digit', year:'numeric'}).replace(/\//g, '.')}</div>
                 </div>
+                <button 
+                  className="menu-btn" 
+                  onClick={(e) => { e.stopPropagation(); setActiveMenuId(activeMenuId === s.id ? null : s.id); }}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', padding: '4px' }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><circle cx="3" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="13" cy="8" r="1.5"/></svg>
+                </button>
+                {activeMenuId === s.id && (
+                  <div className="dropdown-menu" style={{ position: 'absolute', right: '12px', top: '100%', zIndex: 10, background: '#2f2f2f', border: '1px solid #4d4d4f', borderRadius: '8px', padding: '4px', display: 'flex', flexDirection: 'column', width: '150px', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
+                    <button className="dropdown-item" onClick={(e) => { e.stopPropagation(); handleShareSession(s.id); }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                      Share
+                    </button>
+                    <button className="dropdown-item" onClick={(e) => { e.stopPropagation(); handleRenameSession(s.id, s.title); }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                      Rename
+                    </button>
+                    <button className="dropdown-item delete" onClick={(e) => { e.stopPropagation(); handleDeleteSession(s.id); }} style={{ color: '#ff6b6b' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                      Delete
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </>
