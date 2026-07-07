@@ -64,7 +64,12 @@ body{
   display: flex;
   flex-direction: column;
   flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
 }
+.sidebar-content::-webkit-scrollbar { width: 4px; }
+.sidebar-content::-webkit-scrollbar-track { background: transparent; }
+.sidebar-content::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
 .mobile-menu-btn {
   display: none;
   background: transparent;
@@ -348,21 +353,29 @@ body{
   border-top:1px solid var(--line);
   padding-top:18px;
 }
-.composer input{
+.composer textarea{
   flex:1;
   background:var(--ink);
   border:1px solid var(--line);
   border-radius:3px;
-  padding:0 14px;
-  height:44px;
+  padding:12px 14px;
+  min-height:44px;
+  max-height: 120px;
   color:var(--text-hi);
   font-size:13.5px;
   font-family:'Inter',sans-serif;
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.4;
 }
-.composer input::placeholder{color:var(--text-faint);font-family:'IBM Plex Mono',monospace;font-size:12.5px;}
-.composer input:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(111,227,214,0.12);}
+.composer textarea::-webkit-scrollbar { width: 4px; }
+.composer textarea::-webkit-scrollbar-track { background: transparent; }
+.composer textarea::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+.composer textarea::placeholder{color:var(--text-faint);font-family:'IBM Plex Mono',monospace;font-size:12.5px;}
+.composer textarea:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(111,227,214,0.12);}
 .composer button{
   height:44px;
+  align-self: flex-end;
   padding:0 22px;
   background:var(--cyan);
   color:#08211d;

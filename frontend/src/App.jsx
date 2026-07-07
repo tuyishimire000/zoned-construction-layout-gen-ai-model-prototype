@@ -17,6 +17,8 @@ function App() {
   
   const [authFullName, setAuthFullName] = useState("");
   
+  const textareaRef = useRef(null);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const rToken = params.get('reset_token');
@@ -319,6 +321,9 @@ function App() {
 
     const userMessage = inputMessage.trim();
     setInputMessage("");
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
     setError(null);
@@ -810,11 +815,25 @@ function App() {
             </div>
 
             <form className="composer" onSubmit={handleSendMessage}>
-              <input 
-                type="text" 
+              <textarea 
+                ref={textareaRef}
+                rows={1}
                 placeholder={isSessionOwner ? "Add another bedroom and a master suite…" : "View-only mode"} 
                 value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
+                onChange={(e) => {
+                  setInputMessage(e.target.value);
+                  e.target.style.height = 'auto';
+                  e.target.style.height = `${e.target.scrollHeight}px`;
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!loading && inputMessage.trim() && isSessionOwner) {
+                      handleSendMessage(e);
+                      e.target.style.height = 'auto';
+                    }
+                  }
+                }}
                 disabled={loading || !isSessionOwner}
               />
               <button type="submit" disabled={loading || !inputMessage.trim() || !isSessionOwner}>
