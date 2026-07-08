@@ -53,7 +53,8 @@ def chat_with_architect(request: ChatRequest, current_user: User = Depends(get_c
     
     # 4. Generate parameters from history
     try:
-        params_dict = extract_parameters_from_history(messages_list)
+        current_state = chat_session.current_state if session_id and chat_session else None
+        params_dict = extract_parameters_from_history(messages_list, current_state=current_state)
     except Exception as e:
         friendly_error = f"I'm having a bit of trouble understanding the architectural constraints from that prompt. Could you try rephrasing your requirements? Error: {str(e)}"
         raise HTTPException(status_code=500, detail=friendly_error)

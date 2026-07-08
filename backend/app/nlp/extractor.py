@@ -34,7 +34,7 @@ class ExtractorSchema(BaseModel):
     rooms: list[RoomSpecSchema] = Field(description="List of rooms defining the floor plan layout.")
     archetype: str | None = Field(default="auto", description="Deprecated, leave as 'auto'.")
 
-def extract_parameters_from_history(messages: list[dict]) -> Dict[str, Any]:
+def extract_parameters_from_history(messages: list[dict], current_state: Dict[str, Any] | None = None) -> Dict[str, Any]:
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY environment variable is missing. Please create a .env file and add your key.")
@@ -50,8 +50,18 @@ def extract_parameters_from_history(messages: list[dict]) -> Dict[str, Any]:
         role = "User" if msg["role"] == "user" else "Assistant"
         history_text += f"{role}: {msg['content']}\n\n"
         
+    state_prompt = ""
+    if current_state:
+        state_prompt = f"""
+    CURRENT LAYOUT STATE:
+    {json.dumps(current_state, indent=2)}
+    
+    CRITICAL INSTRUCTION: You MUST retain the existing layout exactly as provided above, including room IDs, anchors, widths, depths, and existing relationships. ONLY modify the specific parts of the layout requested in the user's latest message (e.g. updating the `adjacent_to` list to add a door, or modifying a specific room's dimensions). DO NOT generate a brand new layout from scratch!
+    """
+    
     prompt = f"""
-    You are an expert architectural assistant and layout engine. Based on the conversation history below, design the CURRENT, FINAL floor plan.
+    You are an expert architectural assistant and layout engine. Based on the conversation history below, design the FINAL floor plan.
+    {state_prompt}
     
     Rules for Layout Generation:
     0. USER INSTRUCTIONS OVERRIDE DEFAULTS: If the user explicitly asks for specific room sizes (e.g., irregular dimensions), specific connections, or a unique layout, you MUST follow their exact instructions. The user's prompt is absolute law.
