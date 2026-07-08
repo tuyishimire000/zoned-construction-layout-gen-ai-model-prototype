@@ -23,8 +23,8 @@ class RoomSpecSchema(BaseModel):
     offset: float | None = Field(default=None, description="Offset in meters to slide the room along the shared wall.")
     gap: float | None = Field(default=None, description="Gap in meters to leave instead of sharing the wall directly.")
     entrances: list[str] = Field(default_factory=list, description="Exterior doors on walls: 'left', 'right', 'top', 'bottom'.")
-    corner_radius: float | None = Field(default=None, description="Optional corner radius in meters for rounded corners (e.g. 1.0).")
-    rounded_corners: list[str] = Field(default_factory=list, description="Specific corners to round: 'top_left', 'top_right', 'bottom_right', 'bottom_left'.")
+    corner_radius: float | None = Field(description="Corner radius in meters for rounded corners (e.g. 1.0). Null if not rounded.")
+    rounded_corners: list[str] = Field(description="Specific corners to round: 'top_left', 'top_right', 'bottom_right', 'bottom_left'. Empty list if not rounded.")
     zone: str | None = Field(default=None, description="'public' or 'private'")
 
 class ExtractorSchema(BaseModel):
