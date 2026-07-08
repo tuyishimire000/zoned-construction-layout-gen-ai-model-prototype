@@ -56,9 +56,11 @@ def extract_parameters_from_history(messages: list[dict], current_state: Dict[st
     CURRENT LAYOUT STATE:
     {json.dumps(current_state, indent=2)}
     
-    CRITICAL INSTRUCTION ON MODIFYING EXISTING LAYOUTS: 
-    - If the user asks for a MINOR tweak (e.g. adding a door, changing a room's size, nudging a room), you MUST retain the existing layout exactly as provided above. Keep all room IDs, anchors, and dimensions intact, and ONLY modify the specific fields requested.
-    - If the user asks for a MAJOR structural change (e.g. "make it a U-shape house", "redesign the layout"), you are ALLOWED to reorganize the relationships (`east_of`, `south_of`, `offset`, etc.) to achieve the desired shape.
+    CRITICAL INSTRUCTION: You are updating an EXISTING floor plan. Your job is to take the CURRENT LAYOUT STATE and apply the user's requested modifications to it. 
+    - Do NOT generate a brand new layout from scratch. 
+    - Keep all room IDs, existing rooms, and unmodified properties exactly the same. 
+    - Only change the specific fields (dimensions, offsets, adjacencies, anchors) necessary to fulfill the user's latest request.
+    - If the user asks for a structural change (like a U-shape), modify the `offset` or `gap` of the existing rooms to achieve it, but do not delete or replace the whole house.
     """
     
     prompt = f"""
