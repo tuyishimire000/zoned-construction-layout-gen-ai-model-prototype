@@ -802,7 +802,7 @@ class HouseSketch:
                 done.add(frozenset((r.id, other.id)))
                 
                 # Swing into private or smaller room
-                if (other.type != RoomType.CORRIDOR and r.type == RoomType.CORRIDOR) or (not self._is_public(other) and self._is_public(r)) or (other.rect.area < r.rect.area and self._is_public(other) == self._is_public(r)):
+                if (other.type not in (RoomType.CORRIDOR, RoomType.HALLWAY) and r.type in (RoomType.CORRIDOR, RoomType.HALLWAY)) or (not self._is_public(other) and self._is_public(r)) or (other.rect.area < r.rect.area and self._is_public(other) == self._is_public(r)):
                     other_link = next(e for e in adj[other.id] if e["neighbor"] == r.id)
                     self._door_on_segment(other, other_link["wall"], other_link["segment"])
                 else:
@@ -816,7 +816,7 @@ class HouseSketch:
                 for e in adj[r.id]:
                     neighbor = self._resolve(e["neighbor"])
                     if neighbor:
-                        if neighbor.type == RoomType.CORRIDOR:
+                        if neighbor.type in (RoomType.CORRIDOR, RoomType.HALLWAY):
                             corridor_link = e
                             break
                         elif neighbor.type == RoomType.LIVING_ROOM:

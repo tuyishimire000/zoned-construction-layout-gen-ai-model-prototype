@@ -90,7 +90,7 @@ def extract_parameters_from_history(messages: list[dict], current_state: Dict[st
        - CONNECTIVITY: EVERY single room MUST be accessible. Ensure all rooms are connected via the `adjacent_to` or `open_to` lists to create a sensible flow.
        - CRITICAL: EVERY bedroom and bathroom MUST have a swinging door connecting it to the corridor/hallway. You MUST explicitly include the corridor's ID in the `adjacent_to` list for EVERY bedroom and bathroom.
        - EXTERIOR DOORS: The house MUST have a main front entrance (e.g., an entrance on the Living Room or Porch) and a back exit (e.g., an entrance on the Kitchen or a back corridor).
-       - The Dining Room MUST be directly adjacent to and connected to the Kitchen via `adjacent_to` or `open_to`.
+       - The Dining Room MUST be directly adjacent to and connected to the Kitchen via a swinging door (`adjacent_to`), NOT an open passage (`open_to`), UNLESS the user explicitly asks for an open plan kitchen.
     
     CONVERSATION HISTORY:
     {history_text}
