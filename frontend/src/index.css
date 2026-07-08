@@ -69,9 +69,9 @@ body{
   overflow-y: auto;
   padding-right: 4px;
 }
-.sidebar-content::-webkit-scrollbar { width: 4px; }
+.sidebar-content::-webkit-scrollbar { width: 6px; }
 .sidebar-content::-webkit-scrollbar-track { background: transparent; }
-.sidebar-content::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+.sidebar-content::-webkit-scrollbar-thumb { background: var(--text-faint); border-radius: 3px; }
 .mobile-menu-btn {
   display: none;
   background: transparent;
@@ -284,9 +284,9 @@ body{
   padding-right: 10px;
 }
 /* custom scrollbar for thread */
-.thread::-webkit-scrollbar { width: 6px; }
+.thread::-webkit-scrollbar { width: 8px; }
 .thread::-webkit-scrollbar-track { background: transparent; }
-.thread::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.thread::-webkit-scrollbar-thumb { background: var(--text-faint); border-radius: 4px; }
 
 .msg{max-width:88%;}
 .msg .bubble{
