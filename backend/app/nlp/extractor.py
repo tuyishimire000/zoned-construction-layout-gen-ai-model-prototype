@@ -14,7 +14,8 @@ class RoomSpecSchema(BaseModel):
     width: float | None = Field(default=None, description="Width in meters (X-axis)")
     depth: float | None = Field(default=None, description="Depth in meters (Y-axis)")
     position: list[float] | None = Field(default=None, description="Absolute position [x, y] in meters. The very first anchor room MUST have this set, e.g. [2, 0].")
-    adjacent_to: list[str] = Field(default_factory=list, description="List of room IDs this room must share an internal door with.")
+    adjacent_to: list[str] = Field(default_factory=list, description="List of room IDs this room must share an internal SWINGING DOOR with.")
+    open_to: list[str] = Field(default_factory=list, description="List of room IDs this room is OPEN to (an open passage or archway with NO physical door).")
     east_of: str | None = Field(default=None, description="ID of the room this is explicitly placed to the east (right) of.")
     west_of: str | None = Field(default=None, description="ID of the room this is explicitly placed to the west (left) of.")
     north_of: str | None = Field(default=None, description="ID of the room this is explicitly placed to the north (above) of.")
@@ -78,7 +79,7 @@ def extract_parameters_from_history(messages: list[dict], current_state: Dict[st
     4. The VERY FIRST room in the list (usually the anchor/living room) MUST have a `position` specified (e.g. [0,0] or [2,0]). All other rooms should ideally NOT have `position`, but instead use `east_of`, `west_of`, `north_of`, or `south_of` referencing an already-placed room `id`. 
        CRITICAL: Each subsequent room MUST have EXACTLY ONE directional field set pointing to a previously defined room.
        DO NOT create cyclic dependencies (e.g., A east_of B, B south_of A).
-    4. Connect rooms with internal doors using the `adjacent_to` list (list the IDs of rooms it connects to).
+    4. Connect rooms with internal DOORS using the `adjacent_to` list (list the IDs of rooms it connects to). For OPEN PASSAGES with NO door (like open plan living/dining), use the `open_to` list instead.
     5. Specify exterior doors using `entrances` (e.g., ["bottom"] for the front porch, ["top"] for a back kitchen door).
     6. Include a 'corridor' (hallway) if necessary to connect private bedrooms and bathrooms. If the user mentions a hallway, map it to the 'corridor' type.
     7. Standard sizes (use unless user specifies otherwise): bedroom (~4x4), bathroom (~2.5x2.5), kitchen (~4x4), living_room (~6x5).
@@ -86,9 +87,10 @@ def extract_parameters_from_history(messages: list[dict], current_state: Dict[st
        - Bathrooms MUST be distributed close to bedrooms (e.g., a Master Bedroom should have its own en-suite bathroom adjacent to it, and a secondary bathroom should be near the other bedrooms). Do NOT clump all bathrooms together far from bedrooms.
        - A 'veranda' or 'porch' MUST be adjacent to the 'living_room' and lead directly into it. It should NOT be isolated or connected only to the kitchen.
        - The kitchen should generally be near the dining room.
-       - CONNECTIVITY: EVERY single room MUST be accessible. Ensure all rooms are connected via the `adjacent_to` list to create a sensible flow (e.g., bedrooms connect to the corridor, corridor connects to the living room). There must be NO isolated rooms without doors.
+       - CONNECTIVITY: EVERY single room MUST be accessible. Ensure all rooms are connected via the `adjacent_to` or `open_to` lists to create a sensible flow.
+       - CRITICAL: EVERY bedroom and bathroom MUST have a swinging door connecting it to the corridor/hallway. You MUST explicitly include the corridor's ID in the `adjacent_to` list for EVERY bedroom and bathroom.
        - EXTERIOR DOORS: The house MUST have a main front entrance (e.g., an entrance on the Living Room or Porch) and a back exit (e.g., an entrance on the Kitchen or a back corridor).
-       - The Dining Room MUST be directly adjacent to and connected to the Kitchen via `adjacent_to`.
+       - The Dining Room MUST be directly adjacent to and connected to the Kitchen via `adjacent_to` or `open_to`.
     
     CONVERSATION HISTORY:
     {history_text}

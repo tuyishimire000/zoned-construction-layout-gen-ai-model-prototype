@@ -261,6 +261,7 @@ class RoomSpec:
 
     zone: Optional[str] = None
     adjacent_to: List[str] = field(default_factory=list)
+    open_to: List[str] = field(default_factory=list)
     position: Optional[Tuple[float, float]] = None
 
     # Relative placement (alternative to `position`): one anchor room id.
@@ -796,6 +797,21 @@ class HouseSketch:
             for w in r.spec.entrances if r.spec else []:
                 self._side_door(r, w, into=inward[w])
 
+        # Open passages
+        done_openings: Set[frozenset] = set()
+        for r in self.rooms:
+            for ref in r.spec.open_to if r.spec else []:
+                other = self._resolve(ref)
+                if other is None or frozenset((r.id, other.id)) in done_openings:
+                    continue
+                link = next(
+                    (e for e in adj[r.id] if e["neighbor"] == other.id), None
+                )
+                if link is None:
+                    continue
+                done_openings.add(frozenset((r.id, other.id)))
+                self._opening_on_segment(r, link["wall"], link["segment"])
+
     def _door_on_segment(self, room: Room, wall: str, segment) -> None:
         """Place a door centred on a shared wall segment, opening into `room`."""
         (sx, sy), (ex, ey) = segment
@@ -809,6 +825,17 @@ class HouseSketch:
             hinge, wdir = (cx - dw / 2, cy), (1, 0)
         room.doors.append(self._make_door(hinge, wdir, into, dw))
         room.door_walls.add(wall)
+
+    def _opening_on_segment(self, room: Room, wall: str, segment) -> None:
+        """Place an open passage (no door) on a shared wall segment."""
+        (sx, sy), (ex, ey) = segment
+        cx, cy = (sx + ex) / 2, (sy + ey) / 2
+        seg_len = math.hypot(ex - sx, ey - sy)
+        ow = min(1.5, seg_len * 0.8) # up to 1.5m wide opening
+        if wall in ("left", "right"):
+            self.openings.append(((cx, cy - ow / 2), (cx, cy + ow / 2)))
+        else:
+            self.openings.append(((cx - ow / 2, cy), (cx + ow / 2, cy)))
 
     # -- adjacency-driven grouping (used by the auto solver) ---------------- #
 
