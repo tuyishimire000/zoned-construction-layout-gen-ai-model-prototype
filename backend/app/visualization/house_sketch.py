@@ -1669,10 +1669,10 @@ class _PILSurface(_Surface):
     def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=1, radius=0, corners=None):
         if radius > 0:
             corner_flags = (
-                ("top_left" in corners) if corners else True,
-                ("top_right" in corners) if corners else True,
-                ("bottom_right" in corners) if corners else True,
-                ("bottom_left" in corners) if corners else True,
+                ("top_left" in corners) if corners else False,
+                ("top_right" in corners) if corners else False,
+                ("bottom_right" in corners) if corners else False,
+                ("bottom_left" in corners) if corners else False,
             )
             # Pillow rounded_rectangle expects radius in pixels, and corners boolean tuple
             self.d.rounded_rectangle([x0, y0, x1, y1], radius=radius, fill=fill, outline=stroke, width=width, corners=corner_flags)
@@ -1713,12 +1713,54 @@ class _SVGSurface(_Surface):
 
     def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=1, radius=0, corners=None):
         x, y = min(x0, x1), min(y0, y1)
-        rx_attr = f' rx="{radius}" ry="{radius}"' if radius > 0 else ""
-        self.parts.append(
-            f'<rect x="{self._n(x)}" y="{self._n(y)}" width="{self._n(abs(x1 - x0))}" '
-            f'height="{self._n(abs(y1 - y0))}"{rx_attr} fill="{fill or "none"}" '
-            f'stroke="{stroke or "none"}" stroke-width="{width}"/>'
-        )
+        
+        # If radius > 0 but corners is an empty list, it means NO corners are rounded
+        if radius > 0 and corners is not None and len(corners) == 0:
+            radius = 0
+            
+        if radius > 0 and corners is not None and len(corners) < 4:
+            tl = "top_left" in corners
+            tr = "top_right" in corners
+            br = "bottom_right" in corners
+            bl = "bottom_left" in corners
+            
+            sx = x + radius if tl else x
+            sy = y
+            p = [f"M {self._n(sx)} {self._n(sy)}"]
+            
+            # Top edge
+            p.append(f"L {self._n(x1 - (radius if tr else 0))} {self._n(y)}")
+            if tr:
+                p.append(f"A {self._n(radius)} {self._n(radius)} 0 0 1 {self._n(x1)} {self._n(y + radius)}")
+                
+            # Right edge
+            p.append(f"L {self._n(x1)} {self._n(y1 - (radius if br else 0))}")
+            if br:
+                p.append(f"A {self._n(radius)} {self._n(radius)} 0 0 1 {self._n(x1 - radius)} {self._n(y1)}")
+                
+            # Bottom edge
+            p.append(f"L {self._n(x + (radius if bl else 0))} {self._n(y1)}")
+            if bl:
+                p.append(f"A {self._n(radius)} {self._n(radius)} 0 0 1 {self._n(x)} {self._n(y1 - radius)}")
+                
+            # Left edge
+            p.append(f"L {self._n(x)} {self._n(y + (radius if tl else 0))}")
+            if tl:
+                p.append(f"A {self._n(radius)} {self._n(radius)} 0 0 1 {self._n(x + radius)} {self._n(y)}")
+                
+            p.append("Z")
+            
+            d = " ".join(p)
+            self.parts.append(
+                f'<path d="{d}" fill="{fill or "none"}" stroke="{stroke or "none"}" stroke-width="{width}"/>'
+            )
+        else:
+            rx_attr = f' rx="{radius}" ry="{radius}"' if radius > 0 else ""
+            self.parts.append(
+                f'<rect x="{self._n(x)}" y="{self._n(y)}" width="{self._n(abs(x1 - x0))}" '
+                f'height="{self._n(abs(y1 - y0))}"{rx_attr} fill="{fill or "none"}" '
+                f'stroke="{stroke or "none"}" stroke-width="{width}"/>'
+            )
 
     def line(self, x0, y0, x1, y1, stroke, width=1):
         self.parts.append(
