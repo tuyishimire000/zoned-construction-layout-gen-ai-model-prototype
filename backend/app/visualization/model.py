@@ -80,6 +80,8 @@ class Room:
     type: str
     label: str
     bounds: Rect
+    corner_radius: float = 0.0
+    rounded_corners: List[str] = field(default_factory=list)
     openings: List[Opening] = field(default_factory=list)
     furniture: List[Furniture] = field(default_factory=list)
 

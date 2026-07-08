@@ -6,16 +6,53 @@ from app.visualization.model import FloorPlan, Room, SiteFeature, FeatureType, O
 
 def _draw_rect_filled(msp, rect, outline_layer, fill_layer, lineweight=0, const_width=0, room=None):
     x, y, w, h = rect
+    
+    radius = getattr(room, "corner_radius", 0.0) if room else 0.0
+    corners = getattr(room, "rounded_corners", []) if room else []
+    
+    def has_c(c):
+        return radius > 0 and (not corners or c in corners)
+    
+    tl, tr, br, bl = has_c('top_left'), has_c('top_right'), has_c('bottom_right'), has_c('bottom_left')
+    
+    # Generate the closed polygon with bulges for the hatch (fill)
+    poly_pts = []
+    if tl:
+        poly_pts.append((x, y+radius, -0.41421356237))
+        poly_pts.append((x+radius, y, 0))
+    else:
+        poly_pts.append((x, y, 0))
+        
+    if tr:
+        poly_pts.append((x+w-radius, y, -0.41421356237))
+        poly_pts.append((x+w, y+radius, 0))
+    else:
+        poly_pts.append((x+w, y, 0))
+        
+    if br:
+        poly_pts.append((x+w, y+h-radius, -0.41421356237))
+        poly_pts.append((x+w-radius, y+h, 0))
+    else:
+        poly_pts.append((x+w, y+h, 0))
+        
+    if bl:
+        poly_pts.append((x+radius, y+h, -0.41421356237))
+        poly_pts.append((x, y+h-radius, 0))
+    else:
+        poly_pts.append((x, y+h, 0))
+
     if fill_layer:
         hatch = msp.add_hatch(color=256, dxfattribs={"layer": fill_layer})
-        hatch.paths.add_polyline_path([(x, y), (x+w, y), (x+w, y+h), (x, y+h), (x, y)], is_closed=True)
+        hatch.paths.add_polyline_path(poly_pts, is_closed=True)
         
     if outline_layer:
+        attribs = {"layer": outline_layer, "lineweight": lineweight}
+        if const_width > 0: attribs["const_width"] = const_width
+        
         if room and hasattr(room, 'openings'):
             gaps_top, gaps_bottom, gaps_left, gaps_right = [], [], [], []
             for op in room.openings:
                 is_horiz = op.orientation == Orientation.HORIZONTAL
-                # the opening is defined by its x,y and length
                 gap_len = op.length
                 start_op = op.x if is_horiz else op.y
                 end_op = (op.x + op.length) if is_horiz else (op.y + op.length)
@@ -32,22 +69,24 @@ def _draw_rect_filled(msp, rect, outline_layer, fill_layer, lineweight=0, const_
                 for gs, ge in sorted(gaps):
                     if curr < gs:
                         pts = [(curr, coord), (gs, coord)] if is_horiz else [(coord, curr), (coord, gs)]
-                        msp.add_lwpolyline(pts, dxfattribs={"layer": outline_layer, "lineweight": lineweight, "const_width": const_width})
+                        msp.add_lwpolyline(pts, dxfattribs=attribs)
                     curr = max(curr, ge)
                 if curr < end_val:
                     pts = [(curr, coord), (end_val, coord)] if is_horiz else [(coord, curr), (coord, end_val)]
-                    msp.add_lwpolyline(pts, dxfattribs={"layer": outline_layer, "lineweight": lineweight, "const_width": const_width})
+                    msp.add_lwpolyline(pts, dxfattribs=attribs)
                     
-            draw_broken_edge(x, x+w, gaps_top, True, y)
-            draw_broken_edge(x, x+w, gaps_bottom, True, y+h)
-            draw_broken_edge(y, y+h, gaps_left, False, x)
-            draw_broken_edge(y, y+h, gaps_right, False, x+w)
+            draw_broken_edge(x + (radius if tl else 0), x + w - (radius if tr else 0), gaps_top, True, y)
+            draw_broken_edge(x + (radius if bl else 0), x + w - (radius if br else 0), gaps_bottom, True, y+h)
+            draw_broken_edge(y + (radius if tl else 0), y + h - (radius if bl else 0), gaps_left, False, x)
+            draw_broken_edge(y + (radius if tr else 0), y + h - (radius if br else 0), gaps_right, False, x+w)
+            
+            # Draw the corner arcs explicitly
+            if tl: msp.add_lwpolyline([(x, y+radius, -0.41421356237), (x+radius, y, 0)], dxfattribs=attribs)
+            if tr: msp.add_lwpolyline([(x+w-radius, y, -0.41421356237), (x+w, y+radius, 0)], dxfattribs=attribs)
+            if br: msp.add_lwpolyline([(x+w, y+h-radius, -0.41421356237), (x+w-radius, y+h, 0)], dxfattribs=attribs)
+            if bl: msp.add_lwpolyline([(x+radius, y+h, -0.41421356237), (x, y+h-radius, 0)], dxfattribs=attribs)
         else:
-            points = [(x, y), (x+w, y), (x+w, y+h), (x, y+h), (x, y)]
-            attribs = {"layer": outline_layer, "lineweight": lineweight}
-            if const_width > 0:
-                attribs["const_width"] = const_width
-            msp.add_lwpolyline(points, dxfattribs=attribs)
+            msp.add_lwpolyline(poly_pts, format="xyb", dxfattribs=attribs, close=True)
 
 def _rgb(r, g, b):
     return ezdxf.colors.rgb2int((r, g, b))

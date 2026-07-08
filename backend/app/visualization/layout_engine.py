@@ -685,6 +685,8 @@ def build_floorplan(params: dict, compliance: dict) -> tuple:
             type=plural_type,
             label=hr.label,
             bounds=r,
+            corner_radius=hr.spec.corner_radius if hr.spec else 0.0,
+            rounded_corners=hr.spec.rounded_corners if hr.spec else [],
             openings=openings,
             furniture=_build_furniture(plural_type, r)
         ))

@@ -275,6 +275,9 @@ class RoomSpec:
     entrances: List[str] = field(default_factory=list)
     windows: Optional[bool] = None
 
+    corner_radius: float = 0.0
+    rounded_corners: List[str] = field(default_factory=list)
+
     priority: int = 0
     notes: str = ""
 
@@ -1275,11 +1278,15 @@ class HouseSketch:
         # Room fills. Their union is the building — so the shape follows the rooms
         # (rectangular, L-shaped, courtyard, central room, ...); gaps show the lot.
         for r in self.all_rooms:
-            surf.rect(*t.box(r.rect), fill=ROOM_COLOR[r.type], stroke=None)
+            radius = getattr(r.spec, "corner_radius", 0.0) * t.scale if r.spec else 0.0
+            corners = getattr(r.spec, "rounded_corners", []) if r.spec else []
+            surf.rect(*t.box(r.rect), fill=ROOM_COLOR[r.type], stroke=None, radius=radius, corners=corners)
 
         # Interior partitions: solid bands on every room boundary.
         for r in self.all_rooms:
-            surf.rect(*t.box(r.rect), fill=None, stroke=self.C_PARTITION, width=part_px)
+            radius = getattr(r.spec, "corner_radius", 0.0) * t.scale if r.spec else 0.0
+            corners = getattr(r.spec, "rounded_corners", []) if r.spec else []
+            surf.rect(*t.box(r.rect), fill=None, stroke=self.C_PARTITION, width=part_px, radius=radius, corners=corners)
 
         # Exterior wall: a heavier band along every non-shared (outer) edge, so the
         # outline traces the actual building shape rather than a bounding rectangle.
@@ -1608,7 +1615,7 @@ class _Surface:
     width: int
     height: int
 
-    def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=1): ...
+    def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=1, radius=0, corners=None): ...
     def line(self, x0, y0, x1, y1, stroke, width=1): ...
     def polyline(self, pts, stroke, width=1): ...
     def polygon(self, pts, fill=None, stroke=None, width=1): ...
@@ -1622,8 +1629,18 @@ class _PILSurface(_Surface):
         self.img = Image.new("RGB", (width, height), bg)
         self.d = ImageDraw.Draw(self.img)
 
-    def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=1):
-        self.d.rectangle([x0, y0, x1, y1], fill=fill, outline=stroke, width=width)
+    def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=1, radius=0, corners=None):
+        if radius > 0:
+            corner_flags = (
+                ("top_left" in corners) if corners else True,
+                ("top_right" in corners) if corners else True,
+                ("bottom_right" in corners) if corners else True,
+                ("bottom_left" in corners) if corners else True,
+            )
+            # Pillow rounded_rectangle expects radius in pixels, and corners boolean tuple
+            self.d.rounded_rectangle([x0, y0, x1, y1], radius=radius, fill=fill, outline=stroke, width=width, corners=corner_flags)
+        else:
+            self.d.rectangle([x0, y0, x1, y1], fill=fill, outline=stroke, width=width)
 
     def line(self, x0, y0, x1, y1, stroke, width=1):
         self.d.line([x0, y0, x1, y1], fill=stroke, width=width)
@@ -1657,11 +1674,12 @@ class _SVGSurface(_Surface):
     def _n(v) -> str:
         return f"{v:.2f}"
 
-    def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=1):
+    def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=1, radius=0, corners=None):
         x, y = min(x0, x1), min(y0, y1)
+        rx_attr = f' rx="{radius}" ry="{radius}"' if radius > 0 else ""
         self.parts.append(
             f'<rect x="{self._n(x)}" y="{self._n(y)}" width="{self._n(abs(x1 - x0))}" '
-            f'height="{self._n(abs(y1 - y0))}" fill="{fill or "none"}" '
+            f'height="{self._n(abs(y1 - y0))}"{rx_attr} fill="{fill or "none"}" '
             f'stroke="{stroke or "none"}" stroke-width="{width}"/>'
         )
 

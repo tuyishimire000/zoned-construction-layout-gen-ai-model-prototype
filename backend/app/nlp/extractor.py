@@ -23,6 +23,8 @@ class RoomSpecSchema(BaseModel):
     offset: float | None = Field(default=None, description="Offset in meters to slide the room along the shared wall.")
     gap: float | None = Field(default=None, description="Gap in meters to leave instead of sharing the wall directly.")
     entrances: list[str] = Field(default_factory=list, description="Exterior doors on walls: 'left', 'right', 'top', 'bottom'.")
+    corner_radius: float | None = Field(default=None, description="Optional corner radius in meters for rounded corners (e.g. 1.0).")
+    rounded_corners: list[str] = Field(default_factory=list, description="Specific corners to round: 'top_left', 'top_right', 'bottom_right', 'bottom_left'.")
     zone: str | None = Field(default=None, description="'public' or 'private'")
 
 class ExtractorSchema(BaseModel):
@@ -61,6 +63,7 @@ def extract_parameters_from_history(messages: list[dict], current_state: Dict[st
     - Keep all room IDs, existing rooms, and unmodified properties exactly the same. 
     - Only change the specific fields (dimensions, offsets, adjacencies, anchors) necessary to fulfill the user's latest request.
     - If the user asks for a structural change (like a U-shape), modify the `offset` or `gap` of the existing rooms to achieve it, but do not delete or replace the whole house.
+    - If the user asks for rounded rooms or curved corners, set `corner_radius` to a positive float (e.g., 0.5 to 2.0) and specify which corners in `rounded_corners` (e.g., ["top_left", "bottom_right"]).
     """
     
     prompt = f"""
