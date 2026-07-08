@@ -1183,6 +1183,8 @@ class HouseSketch:
             if room.spec and room.spec.windows is False:
                 continue
             for side, seg in self._exterior_segments(room):
+                if side == "arc":
+                    continue
                 if side in room.door_walls:
                     continue
                 (x0, y0), (x1, y1) = seg
