@@ -790,7 +790,24 @@ class HouseSketch:
                     print(f"Warning: {r.label!r} is declared adjacent to {other.label!r} but they don't share a wall as positioned.")
                     continue
                 done.add(frozenset((r.id, other.id)))
-                self._door_on_segment(r, link["wall"], link["segment"])
+                
+                # Swing into private or smaller room
+                if (other.type != RoomType.CORRIDOR and r.type == RoomType.CORRIDOR) or (not self._is_public(other) and self._is_public(r)) or (other.rect.area < r.rect.area and self._is_public(other) == self._is_public(r)):
+                    other_link = next(e for e in adj[other.id] if e["neighbor"] == r.id)
+                    self._door_on_segment(other, other_link["wall"], other_link["segment"])
+                else:
+                    self._door_on_segment(r, link["wall"], link["segment"])
+
+        # Implicit doors for disconnected private rooms
+        for r in self.rooms:
+            if not self._is_public(r) and not any(r.id in fset for fset in done):
+                # Connect to adjacent corridor or living room
+                for e in adj[r.id]:
+                    neighbor = self._resolve(e["neighbor"])
+                    if neighbor and neighbor.type in (RoomType.CORRIDOR, RoomType.LIVING_ROOM):
+                        done.add(frozenset((r.id, neighbor.id)))
+                        self._door_on_segment(r, e["wall"], e["segment"])
+                        break
 
         # Exterior entry doors (windows are placed later, in the dispatcher).
         for r in self.rooms:
