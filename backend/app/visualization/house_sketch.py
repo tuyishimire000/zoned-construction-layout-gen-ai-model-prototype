@@ -1114,8 +1114,7 @@ class HouseSketch:
 
     def _exterior_segments(self, room: Room):
         """(side, segment) for each part of a room's edges NOT shared with a
-        neighbour — i.e. the outer walls. This is what lets the building outline
-        follow the rooms into any shape instead of a fixed rectangle."""
+        neighbour — i.e. the outer walls. Also yields ('arc', [points]) for rounded corners."""
         r = room.rect
         if r is None:
             return []
@@ -1127,12 +1126,20 @@ class HouseSketch:
             else:
                 shared[e["wall"]].append((min(sy, ey), max(sy, ey)))
 
-        edges = {  # side: (interval_start, interval_end, fixed_coord, horizontal?)
-            "top": (r.x, r.right, r.y, True),
-            "bottom": (r.x, r.right, r.bottom, True),
-            "left": (r.y, r.bottom, r.x, False),
-            "right": (r.y, r.bottom, r.right, False),
+        radius = getattr(room.spec, "corner_radius", 0.0) if room.spec else 0.0
+        corners = getattr(room.spec, "rounded_corners", []) if room.spec else []
+        tl = radius > 0 and ("top_left" in corners)
+        tr = radius > 0 and ("top_right" in corners)
+        br = radius > 0 and ("bottom_right" in corners)
+        bl = radius > 0 and ("bottom_left" in corners)
+
+        edges = {
+            "top": (r.x + (radius if tl else 0), r.right - (radius if tr else 0), r.y, True),
+            "bottom": (r.x + (radius if bl else 0), r.right - (radius if br else 0), r.bottom, True),
+            "left": (r.y + (radius if tl else 0), r.bottom - (radius if bl else 0), r.x, False),
+            "right": (r.y + (radius if tr else 0), r.bottom - (radius if br else 0), r.right, False),
         }
+        
         out = []
         for side, (a, b, fixed, horizontal) in edges.items():
             for lo, hi in self._subtract_intervals(a, b, shared[side]):
@@ -1142,6 +1149,31 @@ class HouseSketch:
                     out.append((side, ((lo, fixed), (hi, fixed))))
                 else:
                     out.append((side, ((fixed, lo), (fixed, hi))))
+
+        # Generate arcs for rounded corners if both adjacent exterior edges are present
+        import math
+        def has_exterior(side, val):
+            for lo, hi in self._subtract_intervals(edges[side][0], edges[side][1], shared[side]):
+                if lo - 0.1 <= val <= hi + 0.1: return True
+            return False
+
+        if tl and has_exterior("top", r.x + radius) and has_exterior("left", r.y + radius):
+            cx, cy = r.x + radius, r.y + radius
+            pts = [(cx + radius * math.cos(math.pi + math.pi/2 * i/10.0), cy + radius * math.sin(math.pi + math.pi/2 * i/10.0)) for i in range(11)]
+            out.append(("arc", pts))
+        if tr and has_exterior("top", r.right - radius) and has_exterior("right", r.y + radius):
+            cx, cy = r.right - radius, r.y + radius
+            pts = [(cx + radius * math.cos(1.5*math.pi + math.pi/2 * i/10.0), cy + radius * math.sin(1.5*math.pi + math.pi/2 * i/10.0)) for i in range(11)]
+            out.append(("arc", pts))
+        if br and has_exterior("bottom", r.right - radius) and has_exterior("right", r.bottom - radius):
+            cx, cy = r.right - radius, r.bottom - radius
+            pts = [(cx + radius * math.cos(0 + math.pi/2 * i/10.0), cy + radius * math.sin(0 + math.pi/2 * i/10.0)) for i in range(11)]
+            out.append(("arc", pts))
+        if bl and has_exterior("bottom", r.x + radius) and has_exterior("left", r.bottom - radius):
+            cx, cy = r.x + radius, r.bottom - radius
+            pts = [(cx + radius * math.cos(0.5*math.pi + math.pi/2 * i/10.0), cy + radius * math.sin(0.5*math.pi + math.pi/2 * i/10.0)) for i in range(11)]
+            out.append(("arc", pts))
+
         return out
 
     def _place_windows(self) -> None:
@@ -1291,8 +1323,11 @@ class HouseSketch:
         # Exterior wall: a heavier band along every non-shared (outer) edge, so the
         # outline traces the actual building shape rather than a bounding rectangle.
         for r in self.all_rooms:
-            for _side, seg in self._exterior_segments(r):
-                surf.line(*t.pt(seg[0]), *t.pt(seg[1]), stroke=self.C_WALL, width=wall_px)
+            for side, seg in self._exterior_segments(r):
+                if side == "arc":
+                    surf.polyline([t.pt(p) for p in seg], stroke=self.C_WALL, width=wall_px)
+                else:
+                    surf.line(*t.pt(seg[0]), *t.pt(seg[1]), stroke=self.C_WALL, width=wall_px)
 
         # Open passages (corridor mouth, living/dining open-plan).
         for seg in self.openings:

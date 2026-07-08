@@ -10,10 +10,10 @@ def _draw_rect_filled(msp, rect, outline_layer, fill_layer, lineweight=0, const_
     radius = getattr(room, "corner_radius", 0.0) if room else 0.0
     corners = getattr(room, "rounded_corners", []) if room else []
     
-    def has_c(c):
-        return radius > 0 and (not corners or c in corners)
-    
-    tl, tr, br, bl = has_c('top_left'), has_c('top_right'), has_c('bottom_right'), has_c('bottom_left')
+    tl = radius > 0 and ("top_left" in corners)
+    tr = radius > 0 and ("top_right" in corners)
+    br = radius > 0 and ("bottom_right" in corners)
+    bl = radius > 0 and ("bottom_left" in corners)
     
     # Generate the closed polygon with bulges for the hatch (fill)
     poly_pts = []
