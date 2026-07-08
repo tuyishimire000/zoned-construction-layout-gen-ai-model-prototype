@@ -56,7 +56,9 @@ def extract_parameters_from_history(messages: list[dict], current_state: Dict[st
     CURRENT LAYOUT STATE:
     {json.dumps(current_state, indent=2)}
     
-    CRITICAL INSTRUCTION: You MUST retain the existing layout exactly as provided above, including room IDs, anchors, widths, depths, and existing relationships. ONLY modify the specific parts of the layout requested in the user's latest message (e.g. updating the `adjacent_to` list to add a door, or modifying a specific room's dimensions). DO NOT generate a brand new layout from scratch!
+    CRITICAL INSTRUCTION ON MODIFYING EXISTING LAYOUTS: 
+    - If the user asks for a MINOR tweak (e.g. adding a door, changing a room's size, nudging a room), you MUST retain the existing layout exactly as provided above. Keep all room IDs, anchors, and dimensions intact, and ONLY modify the specific fields requested.
+    - If the user asks for a MAJOR structural change (e.g. "make it a U-shape house", "redesign the layout"), you are ALLOWED to reorganize the relationships (`east_of`, `south_of`, `offset`, etc.) to achieve the desired shape.
     """
     
     prompt = f"""
@@ -65,7 +67,7 @@ def extract_parameters_from_history(messages: list[dict], current_state: Dict[st
     
     Rules for Layout Generation:
     0. USER INSTRUCTIONS OVERRIDE DEFAULTS: If the user explicitly asks for specific room sizes (e.g., irregular dimensions), specific connections, or a unique layout, you MUST follow their exact instructions. The user's prompt is absolute law.
-    1. To create U-shapes, L-shapes, or tuck/move rooms inward/outward (e.g. "move bedroom 3 inward by 2 meters"), you MUST use the `offset` parameter. For example, setting `offset=2.0` on a room placed `south_of` another room will slide it 2 meters along the shared wall, creating a staggered/irregular footprint! Use the `gap` parameter to create a separation between rooms instead of sharing a full wall.
+    1. IRREGULAR SHAPES (U-Shape, L-Shape): To create U-shapes, L-shapes, or tuck rooms inward/outward, you MUST use the `offset` parameter to stagger them! For example, setting `offset=3.0` on a room placed `south_of` another room will slide it 3 meters along the shared wall, causing it to stick out and create an L or U shaped footprint! Do NOT just stack rooms in a perfect rectangle if the user wants an irregular shape. Use the `gap` parameter to create a courtyard or separation between rooms.
     2. Output a list of RoomSpecSchema objects representing the exact layout of the house.
     3. Assign a unique `id` to each room (e.g., 'porch', 'liv', 'din', 'kit', 'corridor', 'bed1', 'master').
     4. The VERY FIRST room in the list (usually the anchor/living room) MUST have a `position` specified (e.g. [0,0] or [2,0]). All other rooms should ideally NOT have `position`, but instead use `east_of`, `west_of`, `north_of`, or `south_of` referencing an already-placed room `id`. 
