@@ -783,6 +783,16 @@ class HouseSketch:
                 other = self._resolve(ref)
                 if other is None or frozenset((r.id, other.id)) in done:
                     continue
+                
+                # If they are declared as an open passage in either direction, skip the door
+                is_open = False
+                if r.spec and any(self._resolve(o) == other for o in r.spec.open_to):
+                    is_open = True
+                if other.spec and any(self._resolve(o) == r for o in other.spec.open_to):
+                    is_open = True
+                if is_open:
+                    continue
+                
                 link = next(
                     (e for e in adj[r.id] if e["neighbor"] == other.id), None
                 )
@@ -801,13 +811,20 @@ class HouseSketch:
         # Implicit doors for disconnected private rooms
         for r in self.rooms:
             if not self._is_public(r) and not any(r.id in fset for fset in done):
-                # Connect to adjacent corridor or living room
+                corridor_link = None
+                liv_link = None
                 for e in adj[r.id]:
                     neighbor = self._resolve(e["neighbor"])
-                    if neighbor and neighbor.type in (RoomType.CORRIDOR, RoomType.LIVING_ROOM):
-                        done.add(frozenset((r.id, neighbor.id)))
-                        self._door_on_segment(r, e["wall"], e["segment"])
-                        break
+                    if neighbor:
+                        if neighbor.type == RoomType.CORRIDOR:
+                            corridor_link = e
+                            break
+                        elif neighbor.type == RoomType.LIVING_ROOM:
+                            liv_link = e
+                link_to_use = corridor_link or liv_link
+                if link_to_use:
+                    done.add(frozenset((r.id, link_to_use["neighbor"])))
+                    self._door_on_segment(r, link_to_use["wall"], link_to_use["segment"])
 
         # Exterior entry doors (windows are placed later, in the dispatcher).
         for r in self.rooms:
