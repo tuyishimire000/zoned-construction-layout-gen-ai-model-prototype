@@ -156,20 +156,23 @@ def get_session(session_id: str, current_user: User = Depends(get_optional_user)
         score = 0.0
         
         floor_plan_b64 = ""
+        floor_plan_svg = None
         dxf_b64 = None
         if params_dict:
             try:
-                floor_plan_b64, dxf_b64, score = generate_floorplan(params_dict, compliance_dict)
+                floor_plan_b64, dxf_b64, floor_plan_svg, score = generate_floorplan(params_dict, compliance_dict)
             except Exception as e:
                 print(f"Failed to regenerate historical layout: {e}")
                 # Provide a placeholder SVG with an error message instead of an empty string
                 import base64
                 error_svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><rect width="100%" height="100%" fill="#fee" /><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#c00" font-family="sans-serif">Error: Invalid geometric layout</text></svg>'
                 floor_plan_b64 = "data:image/svg+xml;base64," + base64.b64encode(error_svg.encode('utf-8')).decode('ascii')
+                floor_plan_svg = error_svg
         analysis_resp = AnalysisResponse(
             extracted_parameters=ProjectParameters(**params_dict),
             compliance=ComplianceResult(**compliance_dict),
             floor_plan_base64=floor_plan_b64,
+            floor_plan_svg=floor_plan_svg,
             dxf_base64=dxf_b64,
             architectural_score=score,
             report_data=None
@@ -255,7 +258,7 @@ def analyze_project(request: ProjectDescriptionRequest):
 
     # 3. Floor Plan Generation
     try:
-        img_data, dxf_data, score = generate_floorplan(params_dict, compliance_dict, request.export_format)
+        img_data, dxf_data, raw_svg, score = generate_floorplan(params_dict, compliance_dict, request.export_format)
     except ValueError as e:
         raise HTTPException(
             status_code=400, detail=str(e)
@@ -301,7 +304,7 @@ def render_project(params: ProjectParameters):
         raise HTTPException(status_code=500, detail=f"Error in compliance validation: {str(e)}")
 
     try:
-        img_data, dxf_data, score = generate_floorplan(params_dict, compliance_dict)
+        img_data, dxf_data, raw_svg, score = generate_floorplan(params_dict, compliance_dict)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -339,3 +342,50 @@ def reset_db():
     db.close()
     
     return {"status": "Database tables dropped, recreated, and seeded with users"}
+
+from typing import List
+from app.api.schemas import FurnitureOverride
+from sqlalchemy.orm.attributes import flag_modified
+
+@router.post("/session/{session_id}/furniture", response_model=AnalysisResponse)
+def update_furniture(session_id: str, overrides: List[FurnitureOverride], current_user: User = Depends(get_optional_user), db: Session = Depends(get_db)):
+    chat_session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # We allow the owner or anyone if public to test
+    is_owner = current_user is not None and chat_session.user_id == current_user.id
+    if not is_owner and not chat_session.is_public:
+        raise HTTPException(status_code=404, detail="Session not found or not public")
+        
+    state = chat_session.current_state or {}
+    if "furniture_overrides" not in state:
+        state["furniture_overrides"] = {}
+        
+    for override in overrides:
+        existing_dx, existing_dy = state["furniture_overrides"].get(override.fid, (0.0, 0.0))
+        state["furniture_overrides"][override.fid] = (existing_dx + override.dx, existing_dy + override.dy)
+        
+    # Reassign to trigger JSON column update in SQLAlchemy
+    chat_session.current_state = state
+    flag_modified(chat_session, "current_state")
+    db.commit()
+    
+    # Regenerate layout with overrides
+    compliance_dict = validate_project(state)
+    try:
+        floor_plan_b64, dxf_b64, raw_svg, score = generate_floorplan(state, compliance_dict)
+    except Exception as e:
+        print(f"Failed to regenerate historical layout: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    analysis_resp = AnalysisResponse(
+        extracted_parameters=ProjectParameters(**state),
+        compliance=ComplianceResult(**compliance_dict),
+        floor_plan_base64=floor_plan_b64,
+        floor_plan_svg=raw_svg,
+        dxf_base64=dxf_b64,
+        architectural_score=score,
+        report_data=None
+    )
+    return analysis_resp

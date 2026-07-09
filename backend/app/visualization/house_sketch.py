@@ -364,6 +364,7 @@ class HouseSketch:
         wall_thickness: float = 0.2,
         title: str = "PROPOSED HOUSE SKETCH",
         furniture: bool = True,
+        furniture_overrides: Optional[Dict[str, Tuple[float, float]]] = None,
     ):
         if plot_width <= 0 or plot_depth <= 0:
             raise SketchValidationError("Plot dimensions must be positive.")
@@ -379,6 +380,7 @@ class HouseSketch:
         self.wall = float(wall_thickness)
         self.title = title
         self.show_furniture = bool(furniture)
+        self.furniture_overrides = furniture_overrides or {}
 
         self.footprint = Rect(
             setback, setback, plot_width - 2 * setback, plot_depth - 2 * setback
@@ -1472,8 +1474,8 @@ class HouseSketch:
 
         # Furniture (thin grey, on top of the floor).
         for r in self.all_rooms:
-            for item in r.furniture:
-                self._draw_furniture(surf, t, item)
+            for idx, item in enumerate(r.furniture):
+                self._draw_furniture(surf, t, r, idx, item)
 
         # Labels.
         for r in self.all_rooms:
@@ -1515,12 +1517,26 @@ class HouseSketch:
         surf.line(p0[0], p0[1], p1[0], p1[1], stroke=self.C_WINDOW, width=wall_px)
         surf.line(p0[0], p0[1], p1[0], p1[1], stroke=self.C_WALL, width=max(1, wall_px // 4))
 
-    def _draw_furniture(self, surf, t, f: Furniture) -> None:
+    def _draw_furniture(self, surf: "_Surface", t: "_Transform", r: Room, idx: int, f: Furniture) -> None:
         """Draw one furniture glyph in thin grey via the surface primitives."""
-        x0, y0, x1, y1 = t.box(f.bounds)
+        # Apply override if exists
+        fid = f"{r.id}_{idx}"
+        dx, dy = 0.0, 0.0
+        if hasattr(self, "furniture_overrides") and self.furniture_overrides:
+            if fid in self.furniture_overrides:
+                dx, dy = self.furniture_overrides[fid]
+        
+        f_rect = Rect(f.bounds.x + dx, f.bounds.y + dy, f.bounds.w, f.bounds.h)
+        x0, y0, x1, y1 = t.box(f_rect)
         w, h = x1 - x0, y1 - y0
         c = self.C_FURN
         k = f.kind
+
+        # Use safe dictionary mapping for arbitrary attrs to avoid class collision with python reserved keyword
+        surf.begin_group(**{"class": "draggable-furniture", "data-fid": fid, "data-kind": k, "style": "cursor: grab;", "pointer-events": "all"})
+        
+        # Invisible bounding box to capture mouse events (grab) anywhere inside the furniture
+        surf.rect(x0, y0, x1, y1, fill="white", stroke="none", **{"fill-opacity": "0"})
 
         def rect(a, b, cc, dd, **kw):
             surf.rect(a, b, cc, dd, stroke=c, width=1, **kw)
@@ -1575,6 +1591,8 @@ class HouseSketch:
             surf.rect(x0, y0, x1, y0 + max(3, h * 0.5), fill=c, stroke=c, width=1)
         else:
             rect(x0, y0, x1, y1)
+
+        surf.end_group()
 
     def _erase(self, surf, t, a, b, wall_px) -> None:
         half = wall_px * 0.7 + 1
@@ -1687,6 +1705,7 @@ class HouseSketch:
     def to_svg(self, path: Optional[str] = None) -> str:
         t = self._transform()
         surf = _SVGSurface(t.width, t.height, self.C_SHEET)
+        surf.scale = t.scale
         self._draw(surf, t)
         svg = surf.to_svg()
         if path:
@@ -1779,6 +1798,8 @@ class _Surface:
     def polygon(self, pts, fill=None, stroke=None, width=1): ...
     def ellipse(self, x0, y0, x1, y1, fill=None, stroke=None, width=1): ...
     def text(self, x, y, s, fill, size, anchor="start"): ...
+    def begin_group(self, **attrs): ...
+    def end_group(self): ...
 
 
 class _PILSurface(_Surface):
@@ -1816,6 +1837,9 @@ class _PILSurface(_Surface):
         a = "mm" if anchor == "middle" else "lm"
         self.d.text((x, y), s, fill=fill, font=_load_font(size), anchor=a)
 
+    def begin_group(self, **attrs): pass
+    def end_group(self): pass
+
     def to_bytes(self) -> bytes:
         buf = io.BytesIO()
         self.img.save(buf, format="PNG")
@@ -1831,6 +1855,13 @@ class _SVGSurface(_Surface):
     @staticmethod
     def _n(v) -> str:
         return f"{v:.2f}"
+
+    def begin_group(self, **attrs):
+        attr_str = " ".join(f'{k}="{html.escape(str(v))}"' for k, v in attrs.items())
+        self.parts.append(f"<g {attr_str}>")
+
+    def end_group(self):
+        self.parts.append("</g>")
 
     def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=1, radius=0, corners=None):
         x, y = min(x0, x1), min(y0, y1)
@@ -1919,9 +1950,10 @@ class _SVGSurface(_Surface):
 
     def to_svg(self) -> str:
         body = "\n  ".join(self.parts)
+        scale_attr = f' data-scale="{self.scale}"' if hasattr(self, 'scale') else ""
         return (
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.width}" '
-            f'height="{self.height}" viewBox="0 0 {self.width} {self.height}">\n'
+            f'height="{self.height}" viewBox="0 0 {self.width} {self.height}"{scale_attr}>\n'
             f'  <rect width="100%" height="100%" fill="{self.bg}"/>\n  {body}\n</svg>\n'
         )
 

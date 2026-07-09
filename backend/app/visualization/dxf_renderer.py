@@ -167,17 +167,17 @@ def render_dxf_bytes(plan: FloorPlan) -> tuple[ezdxf.document.Drawing, bytes]:
         mtext = msp.add_mtext(text_content, dxfattribs={"layer": "TEXT", "char_height": 0.18, "color": 7})
         mtext.set_location((r.bounds.cx, r.bounds.cy), attachment_point=5) # 5 = Middle Center
         
-        # Furniture rendering removed per user request
-        # for f in r.furniture:
-        #     fx, fy, fw, fh = f.bounds.x, f.bounds.y, f.bounds.width, f.bounds.height
-        #     _draw_rect_filled(msp, (fx, fy, fw, fh), outline_layer="FURNITURE", fill_layer=None, lineweight=13)
-        #     # Add a cross for beds to make it look like a bed block
-        #     if "bed" in f.type.lower():
-        #         msp.add_line((fx, fy), (fx+fw, fy+fh), dxfattribs={"layer": "FURNITURE"})
-        #         msp.add_line((fx, fy+fh), (fx+fw, fy), dxfattribs={"layer": "FURNITURE"})
-        #     elif "car" in f.type.lower():
-        #         # Car generic block (chamfered rect)
-        #         _draw_rect_filled(msp, (fx+0.2, fy+0.2, fw-0.4, fh-0.4), outline_layer="FURNITURE", fill_layer=None)
+        # Furniture rendering
+        for f in r.furniture:
+            fx, fy, fw, fh = f.bounds.x, f.bounds.y, f.bounds.width, f.bounds.height
+            _draw_rect_filled(msp, (fx, fy, fw, fh), outline_layer="FURNITURE", fill_layer=None, lineweight=13)
+            # Add a cross for beds to make it look like a bed block
+            if "bed" in f.type.lower():
+                msp.add_line((fx, fy), (fx+fw, fy+fh), dxfattribs={"layer": "FURNITURE"})
+                msp.add_line((fx, fy+fh), (fx+fw, fy), dxfattribs={"layer": "FURNITURE"})
+            elif "car" in f.type.lower():
+                # Car generic block (chamfered rect)
+                _draw_rect_filled(msp, (fx+0.2, fy+0.2, fw-0.4, fh-0.4), outline_layer="FURNITURE", fill_layer=None)
         
         # Openings
         for op in r.openings:

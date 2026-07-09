@@ -559,12 +559,34 @@ def _build_openings(room_rects: Dict[str, Rect], nodes: List[Dict], edges: List[
     return openings
 
 def build_floorplan(params: dict, compliance: dict) -> tuple:
-    plot_size = params.get("plot_size") or 600
-    floors = params.get("floors") or 1
+    """Entry point for translating validated API params -> final geometry and rendering.
+    Returns (FloorPlan, HouseSketch).
+    """
+    import json
+    import hashlib
+    # Seed the random number generator deterministically based on input parameters
+    # Note: we exclude furniture_overrides from the hash so that moving furniture
+    # doesn't change the base layout!
+    seed_params = {k: v for k, v in params.items() if k != "furniture_overrides"}
+    seed_str = json.dumps(seed_params, sort_keys=True)
+    seed_int = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % (2**32)
+    random.seed(seed_int)
+
+    floors = params.get("floors", 1)
+    plot_size = params.get("plot_size")
+    if isinstance(plot_size, str):
+        if "x" in plot_size:
+            w, d = plot_size.split("x")
+            plot_size = float(w) * float(d)
+        else:
+            plot_size = float(plot_size)
+    if not plot_size:
+        plot_size = 400.0
+
     parking = params.get("parking_spaces") or 0
     usage = params.get("usage") or "residential"
     archetype = params.get("archetype") or "auto"
-    
+
     plot_side = math.sqrt(plot_size)
     plot = Rect(0, 0, plot_side, plot_side)
     
@@ -592,7 +614,8 @@ def build_floorplan(params: dict, compliance: dict) -> tuple:
         plot_width=plot_side,
         plot_depth=plot_side,
         rooms=rooms_specs,
-        setback=setback
+        setback=setback,
+        furniture_overrides=params.get("furniture_overrides")
     )
 
     # 2. Map HouseSketch geometry to Model Geometry
@@ -688,7 +711,18 @@ def build_floorplan(params: dict, compliance: dict) -> tuple:
             corner_radius=hr.spec.corner_radius if hr.spec else 0.0,
             rounded_corners=hr.spec.rounded_corners if hr.spec else [],
             openings=openings,
-            furniture=_build_furniture(plural_type, r)
+            furniture=[
+                Furniture(
+                    type=f.kind, 
+                    bounds=Rect(
+                        f.bounds.x + (params.get("furniture_overrides", {}).get(f"{hr.id}_{idx}", [0,0])[0] if params.get("furniture_overrides") else 0),
+                        f.bounds.y + (params.get("furniture_overrides", {}).get(f"{hr.id}_{idx}", [0,0])[1] if params.get("furniture_overrides") else 0),
+                        f.bounds.w, 
+                        f.bounds.h
+                    )
+                ) 
+                for idx, f in enumerate(hr.furniture)
+            ]
         ))
         
     building = Rect(hs.footprint.x, hs.footprint.y, hs.footprint.w, hs.footprint.h)

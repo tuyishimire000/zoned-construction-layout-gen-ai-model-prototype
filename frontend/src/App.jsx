@@ -1,3 +1,4 @@
+/* eslint-disable */
 import React, { useState, useEffect, useRef } from 'react';
 import { useGoogleLogin } from '@react-oauth/google';
 import Terms from './pages/Terms';
@@ -82,6 +83,136 @@ function App() {
     "Running physics layout engine...",
     "Rendering new blueprints..."
   ];
+
+
+  // Drag and drop logic for furniture
+  useEffect(() => {
+    if (!result || !result.floor_plan_svg || !isSessionOwner) return;
+
+    const svgContainer = document.querySelector('.svg-container svg');
+    if (!svgContainer) return;
+
+    let isDragging = false;
+    let currentTarget = null;
+    let startX = 0;
+    let startY = 0;
+    let startTranslateX = 0;
+    let startTranslateY = 0;
+    let fid = null;
+
+    const getMousePosition = (e) => {
+      const CTM = svgContainer.getScreenCTM();
+      return {
+        x: (e.clientX - CTM.e) / CTM.a,
+        y: (e.clientY - CTM.f) / CTM.d
+      };
+    };
+
+    const handleMouseDown = (e) => {
+      const target = e.target.closest('g.draggable-furniture');
+      if (!target) return;
+      
+      isDragging = true;
+      currentTarget = target;
+      fid = target.getAttribute('data-fid');
+      
+      const pos = getMousePosition(e);
+      startX = pos.x;
+      startY = pos.y;
+      
+      // Parse existing transform if any
+      const transform = target.getAttribute('transform');
+      if (transform) {
+        const translateMatch = transform.match(/translate\\(([^, ]+)[, ]+([^)]+)\\)/);
+        if (translateMatch) {
+          startTranslateX = parseFloat(translateMatch[1]);
+          startTranslateY = parseFloat(translateMatch[2]);
+        } else {
+          startTranslateX = 0;
+          startTranslateY = 0;
+        }
+      } else {
+        startTranslateX = 0;
+        startTranslateY = 0;
+      }
+      
+      target.style.cursor = 'grabbing';
+      e.preventDefault(); // Prevent text selection
+    };
+
+    const handleMouseMove = (e) => {
+      if (!isDragging || !currentTarget) return;
+      e.preventDefault();
+      
+      const pos = getMousePosition(e);
+      const dx = pos.x - startX;
+      const dy = pos.y - startY;
+      
+      const newX = startTranslateX + dx;
+      const newY = startTranslateY + dy;
+      
+      currentTarget.setAttribute('transform', `translate(${newX}, ${newY})`);
+    };
+
+    const handleMouseUp = async (e) => {
+      if (!isDragging || !currentTarget || !fid) return;
+      isDragging = false;
+      currentTarget.style.cursor = 'grab';
+      
+      const pos = getMousePosition(e);
+      const totalDx = pos.x - startX;
+      const totalDy = pos.y - startY;
+      
+      const finalTranslateX = startTranslateX + totalDx;
+      const finalTranslateY = startTranslateY + totalDy;
+      currentTarget = null;
+      
+      if (Math.abs(totalDx) < 0.1 && Math.abs(totalDy) < 0.1) {
+         // Tiny movement, don't trigger save
+         return;
+      }
+
+      // Convert pixel deltas to meter deltas using the scale factor embedded in the SVG
+      const scale = parseFloat(svgContainer.getAttribute('data-scale') || '26.0');
+      const deltaDx = totalDx / scale;
+      const deltaDy = totalDy / scale;
+      
+      try {
+        setLoading(true);
+        setLoadingMsgIdx(3); // "Running physics layout engine..."
+        
+        const response = await fetch(`/api/session/${sessionId}/furniture`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify([
+            { fid: fid, dx: deltaDx, dy: deltaDy }
+          ])
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setResult(data);
+        }
+      } catch (err) {
+        console.error("Failed to save furniture override", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    svgContainer.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      svgContainer.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [result, isSessionOwner, sessionId, token]);
 
   // Auth Effects
   useEffect(() => {
@@ -861,7 +992,13 @@ function App() {
                 </div>
               )}
               
-              {result && (
+              {result && result.floor_plan_svg ? (
+                <div 
+                  className="svg-container" 
+                  dangerouslySetInnerHTML={{ __html: result.floor_plan_svg }} 
+                  key={result.floor_plan_svg.substring(0, 50)} 
+                />
+              ) : result && (
                 <img src={result.floor_plan_base64} alt="Floor plan" key={result.floor_plan_base64.substring(0, 50)} />
               )}
               

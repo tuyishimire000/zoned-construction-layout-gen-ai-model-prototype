@@ -81,9 +81,15 @@ class AnalysisResponse(BaseModel):
     extracted_parameters: ProjectParameters
     compliance: ComplianceResult
     floor_plan_base64: str
+    floor_plan_svg: Optional[str] = None
     dxf_base64: Optional[str] = None
     architectural_score: float = 0.0
     report_data: Optional[ReportData] = None
+
+class FurnitureOverride(BaseModel):
+    fid: str
+    dx: float
+    dy: float
 
 class ChatRequest(BaseModel):
     session_id: Optional[str] = None

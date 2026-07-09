@@ -14,9 +14,9 @@ from .layout_engine import build_floorplan
 from .dxf_renderer import render_dxf, export_to_svg
 from typing import Tuple
 
-def generate_floorplan(params: dict, compliance: dict, export_format: str = "png") -> Tuple[str, str, float]:
+def generate_floorplan(params: dict, compliance: dict, export_format: str = "png") -> Tuple[str, str, str, float]:
     """Build the layout model and render it to the specified format and DXF. 
-    Returns (image_data, dxf_data, score).
+    Returns (image_data, dxf_data, raw_svg, score).
     """
     import base64
     plan, hs = build_floorplan(params, compliance)
@@ -25,4 +25,4 @@ def generate_floorplan(params: dict, compliance: dict, export_format: str = "png
     raw_svg = hs.to_svg()
     img_data = "data:image/svg+xml;base64," + base64.b64encode(raw_svg.encode('utf-8')).decode('ascii')
     
-    return img_data, dxf_data, plan.score
+    return img_data, dxf_data, raw_svg, plan.score
