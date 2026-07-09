@@ -384,6 +384,7 @@ class HouseSketch:
             setback, setback, plot_width - 2 * setback, plot_depth - 2 * setback
         )
         self.specs: List[RoomSpec] = self._coerce_specs(rooms)
+        self._normalize_specs()
         self.rooms: List[Room] = self._build_rooms(self.specs)
         if not self.rooms:
             raise SketchValidationError("At least one room is required.")
@@ -450,6 +451,64 @@ class HouseSketch:
                 else:  # bare "bedroom" / RoomType.BEDROOM
                     specs.append(RoomSpec(type=item))
         return specs
+
+    def _normalize_specs(self) -> None:
+        """Enforces hard architectural rules on the LLM output."""
+        liv_ids = [s.id for s in self.specs if s.id and s.type == RoomType.LIVING_ROOM]
+        din_ids = [s.id for s in self.specs if s.id and s.type == RoomType.DINING]
+        kit_ids = [s.id for s in self.specs if s.id and s.type == RoomType.KITCHEN]
+        corr_ids = [s.id for s in self.specs if s.id and s.type in (RoomType.CORRIDOR, RoomType.HALLWAY)]
+        
+        for s in self.specs:
+            if not s.id:
+                continue
+            
+            if not getattr(s, "adjacent_to", None):
+                s.adjacent_to = []
+            if not getattr(s, "open_to", None):
+                s.open_to = []
+                
+            # Living Room <-> Corridor should be OPEN
+            if s.id in liv_ids:
+                for cid in corr_ids:
+                    if cid in s.adjacent_to:
+                        s.adjacent_to.remove(cid)
+                        if cid not in s.open_to:
+                            s.open_to.append(cid)
+            if s.id in corr_ids:
+                for lid in liv_ids:
+                    if lid in s.adjacent_to:
+                        s.adjacent_to.remove(lid)
+                        if lid not in s.open_to:
+                            s.open_to.append(lid)
+                            
+            # Dining Room <-> Kitchen should be A DOOR (adjacent_to), NOT open_to
+            if s.id in din_ids:
+                for kid in kit_ids:
+                    if kid in s.open_to:
+                        s.open_to.remove(kid)
+                        if kid not in s.adjacent_to:
+                            s.adjacent_to.append(kid)
+            if s.id in kit_ids:
+                for did in din_ids:
+                    if did in s.open_to:
+                        s.open_to.remove(did)
+                        if did not in s.adjacent_to:
+                            s.adjacent_to.append(did)
+
+            # Living <-> Dining should be OPEN (open plan)
+            if s.id in liv_ids:
+                for did in din_ids:
+                    if did in s.adjacent_to:
+                        s.adjacent_to.remove(did)
+                        if did not in s.open_to:
+                            s.open_to.append(did)
+            if s.id in din_ids:
+                for lid in liv_ids:
+                    if lid in s.adjacent_to:
+                        s.adjacent_to.remove(lid)
+                        if lid not in s.open_to:
+                            s.open_to.append(lid)
 
     @staticmethod
     def _slug(text: str) -> str:
