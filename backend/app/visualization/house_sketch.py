@@ -45,6 +45,7 @@ class RoomType(str, Enum):
     DINING = "dining"
     OFFICE = "office"
     CORRIDOR = "corridor"
+    HALLWAY = "hallway"
     VERANDA = "veranda"   # barza / porch — semi-open front space
     STORE = "store"       # pantry / storage
 
@@ -61,6 +62,7 @@ ROOM_AREA = {
     RoomType.DINING: 12.0,
     RoomType.OFFICE: 10.0,
     RoomType.CORRIDOR: 6.0,
+    RoomType.HALLWAY: 6.0,
     RoomType.VERANDA: 8.0,
     RoomType.STORE: 3.0,
 }
@@ -72,6 +74,7 @@ ROOM_MIN_SIDE = {
     RoomType.DINING: 2.4,
     RoomType.OFFICE: 2.0,
     RoomType.CORRIDOR: 1.0,
+    RoomType.HALLWAY: 1.0,
     RoomType.VERANDA: 1.2,
     RoomType.STORE: 0.9,
 }
@@ -79,6 +82,7 @@ ROOM_MIN_SIDE = {
 # lighter grey (semi-open), the store a faint neutral.
 ROOM_COLOR = {rt: "#FFFFFF" for rt in RoomType}
 ROOM_COLOR[RoomType.CORRIDOR] = "#F2F3F5"
+ROOM_COLOR[RoomType.HALLWAY] = "#F2F3F5"
 ROOM_COLOR[RoomType.VERANDA] = "#EDEFF1"
 ROOM_COLOR[RoomType.STORE] = "#F5F3EE"
 
