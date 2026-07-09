@@ -868,9 +868,24 @@ class HouseSketch:
                 else:
                     self._door_on_segment(r, link["wall"], link["segment"])
 
+        # Open passages
+        done_openings: Set[frozenset] = set()
+        for r in self.rooms:
+            for ref in (getattr(r.spec, "open_to", None) or []) if r.spec else []:
+                other = self._resolve(ref)
+                if other is None or frozenset((r.id, other.id)) in done_openings:
+                    continue
+                link = next(
+                    (e for e in adj[r.id] if e["neighbor"] == other.id), None
+                )
+                if link is None:
+                    continue
+                done_openings.add(frozenset((r.id, other.id)))
+                self._opening_on_segment(r, link["wall"], link["segment"])
+
         # Implicit doors for disconnected private rooms
         for r in self.rooms:
-            if not self._is_public(r) and not any(r.id in fset for fset in done):
+            if not self._is_public(r) and not any(r.id in fset for fset in done) and not any(r.id in fset for fset in done_openings):
                 corridor_link = None
                 liv_link = None
                 for e in adj[r.id]:
@@ -890,21 +905,6 @@ class HouseSketch:
         for r in self.rooms:
             for w in r.spec.entrances if r.spec else []:
                 self._side_door(r, w, into=inward[w])
-
-        # Open passages
-        done_openings: Set[frozenset] = set()
-        for r in self.rooms:
-            for ref in (getattr(r.spec, "open_to", None) or []) if r.spec else []:
-                other = self._resolve(ref)
-                if other is None or frozenset((r.id, other.id)) in done_openings:
-                    continue
-                link = next(
-                    (e for e in adj[r.id] if e["neighbor"] == other.id), None
-                )
-                if link is None:
-                    continue
-                done_openings.add(frozenset((r.id, other.id)))
-                self._opening_on_segment(r, link["wall"], link["segment"])
 
     def _door_on_segment(self, room: Room, wall: str, segment) -> None:
         """Place a door centred on a shared wall segment, opening into `room`."""
