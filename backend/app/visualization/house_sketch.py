@@ -786,9 +786,9 @@ class HouseSketch:
                 
                 # If they are declared as an open passage in either direction, skip the door
                 is_open = False
-                if r.spec and any(self._resolve(o) == other for o in r.spec.open_to):
+                if r.spec and getattr(r.spec, "open_to", None) and any(self._resolve(o) == other for o in r.spec.open_to):
                     is_open = True
-                if other.spec and any(self._resolve(o) == r for o in other.spec.open_to):
+                if other.spec and getattr(other.spec, "open_to", None) and any(self._resolve(o) == r for o in other.spec.open_to):
                     is_open = True
                 if is_open:
                     continue
@@ -834,7 +834,7 @@ class HouseSketch:
         # Open passages
         done_openings: Set[frozenset] = set()
         for r in self.rooms:
-            for ref in r.spec.open_to if r.spec else []:
+            for ref in (getattr(r.spec, "open_to", None) or []) if r.spec else []:
                 other = self._resolve(ref)
                 if other is None or frozenset((r.id, other.id)) in done_openings:
                     continue
