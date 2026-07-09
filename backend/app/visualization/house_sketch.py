@@ -454,61 +454,58 @@ class HouseSketch:
 
     def _normalize_specs(self) -> None:
         """Enforces hard architectural rules on the LLM output."""
-        liv_ids = [r.id for r in self.rooms if r.type == RoomType.LIVING_ROOM]
-        din_ids = [r.id for r in self.rooms if r.type == RoomType.DINING]
-        kit_ids = [r.id for r in self.rooms if r.type == RoomType.KITCHEN]
-        corr_ids = [r.id for r in self.rooms if r.type in (RoomType.CORRIDOR, RoomType.HALLWAY)]
+        liv_ids = {r.id for r in self.rooms if r.type == RoomType.LIVING_ROOM}
+        din_ids = {r.id for r in self.rooms if r.type == RoomType.DINING}
+        kit_ids = {r.id for r in self.rooms if r.type == RoomType.KITCHEN}
+        corr_ids = {r.id for r in self.rooms if r.type in (RoomType.CORRIDOR, RoomType.HALLWAY)}
         
         for r in self.rooms:
             if not r.spec:
                 continue
             
-            if not getattr(r.spec, "adjacent_to", None):
-                r.spec.adjacent_to = []
-            if not getattr(r.spec, "open_to", None):
-                r.spec.open_to = []
+            # Resolve existing refs to their canonical IDs
+            adj_ids = set()
+            for ref in getattr(r.spec, "adjacent_to", []) or []:
+                resolved = self._resolve(ref)
+                if resolved: adj_ids.add(resolved.id)
+                
+            open_ids = set()
+            for ref in getattr(r.spec, "open_to", []) or []:
+                resolved = self._resolve(ref)
+                if resolved: open_ids.add(resolved.id)
                 
             # Living Room <-> Corridor should be OPEN
             if r.id in liv_ids:
                 for cid in corr_ids:
-                    if cid in r.spec.adjacent_to:
-                        r.spec.adjacent_to.remove(cid)
-                        if cid not in r.spec.open_to:
-                            r.spec.open_to.append(cid)
+                    if cid in adj_ids: adj_ids.remove(cid)
+                    open_ids.add(cid)
             if r.id in corr_ids:
                 for lid in liv_ids:
-                    if lid in r.spec.adjacent_to:
-                        r.spec.adjacent_to.remove(lid)
-                        if lid not in r.spec.open_to:
-                            r.spec.open_to.append(lid)
-                            
+                    if lid in adj_ids: adj_ids.remove(lid)
+                    open_ids.add(lid)
+                    
             # Dining Room <-> Kitchen should be A DOOR (adjacent_to), NOT open_to
             if r.id in din_ids:
                 for kid in kit_ids:
-                    if kid in r.spec.open_to:
-                        r.spec.open_to.remove(kid)
-                        if kid not in r.spec.adjacent_to:
-                            r.spec.adjacent_to.append(kid)
+                    if kid in open_ids: open_ids.remove(kid)
+                    adj_ids.add(kid)
             if r.id in kit_ids:
                 for did in din_ids:
-                    if did in r.spec.open_to:
-                        r.spec.open_to.remove(did)
-                        if did not in r.spec.adjacent_to:
-                            r.spec.adjacent_to.append(did)
+                    if did in open_ids: open_ids.remove(did)
+                    adj_ids.add(did)
 
             # Living <-> Dining should be OPEN (open plan)
             if r.id in liv_ids:
                 for did in din_ids:
-                    if did in r.spec.adjacent_to:
-                        r.spec.adjacent_to.remove(did)
-                        if did not in r.spec.open_to:
-                            r.spec.open_to.append(did)
+                    if did in adj_ids: adj_ids.remove(did)
+                    open_ids.add(did)
             if r.id in din_ids:
                 for lid in liv_ids:
-                    if lid in r.spec.adjacent_to:
-                        r.spec.adjacent_to.remove(lid)
-                        if lid not in r.spec.open_to:
-                            r.spec.open_to.append(lid)
+                    if lid in adj_ids: adj_ids.remove(lid)
+                    open_ids.add(lid)
+                    
+            r.spec.adjacent_to = list(adj_ids)
+            r.spec.open_to = list(open_ids)
 
     @staticmethod
     def _slug(text: str) -> str:
