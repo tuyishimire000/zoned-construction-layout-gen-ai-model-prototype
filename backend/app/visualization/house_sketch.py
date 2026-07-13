@@ -623,7 +623,11 @@ class HouseSketch:
         fall back to the automatic central-corridor archetype.
         """
         if self.manual:
-            self._layout_manual()
+            try:
+                self._layout_manual()
+            except SketchValidationError as e:
+                self.warnings = getattr(self, "warnings", []) + [str(e)]
+                self._layout_auto()
         else:
             self._layout_auto()
         self.adjacency = self._compute_adjacency()
@@ -813,9 +817,58 @@ class HouseSketch:
         fb = self.footprint
         self._resolve_positions()
 
-        # Inside the footprint?
+        # Inside the footprint? (Wait until after collision resolution to expand)
+        # Physics Solver: Resolve Overlaps (AABB Separation)
+        for _ in range(50):
+            moved = False
+            for i, a in enumerate(self.rooms):
+                for b in self.rooms[i + 1 :]:
+                    if not a.rect or not b.rect: continue
+                    ox = min(a.rect.right, b.rect.right) - max(a.rect.x, b.rect.x)
+                    oy = min(a.rect.bottom, b.rect.bottom) - max(a.rect.y, b.rect.y)
+                    if ox > 1e-6 and oy > 1e-6:
+                        # Push apart along the axis of minimum overlap
+                        if ox < oy:
+                            shift = (ox / 2.0) + 0.001
+                            if a.rect.cx < b.rect.cx:
+                                a.rect.x -= shift
+                                b.rect.x += shift
+                            else:
+                                a.rect.x += shift
+                                b.rect.x -= shift
+                        else:
+                            shift = (oy / 2.0) + 0.001
+                            if a.rect.cy < b.rect.cy:
+                                a.rect.y -= shift
+                                b.rect.y += shift
+                            else:
+                                a.rect.y += shift
+                                b.rect.y -= shift
+                        moved = True
+            if not moved:
+                break
+
+        # Check if unresolvable overlaps remain
+        for i, a in enumerate(self.rooms):
+            for b in self.rooms[i + 1 :]:
+                if not a.rect or not b.rect: continue
+                ox = min(a.rect.right, b.rect.right) - max(a.rect.x, b.rect.x)
+                oy = min(a.rect.bottom, b.rect.bottom) - max(a.rect.y, b.rect.y)
+                if ox > 1e-6 and oy > 1e-6:
+                    raise SketchValidationError("The AI-generated manual layout was too tangled and caused unresolvable overlaps. We fell back to auto-layout to guarantee a clean design.")
+
+        # Align building to top-left setback (Fixes top/left bleeding)
         bb = self._rooms_bbox()
-        # Auto-expand plot if the rooms spill outside the footprint
+        shift_x = self.setback - bb.x
+        shift_y = self.setback - bb.y
+        if abs(shift_x) > 1e-6 or abs(shift_y) > 1e-6:
+            for r in self.rooms:
+                if r.rect:
+                    r.rect.x += shift_x
+                    r.rect.y += shift_y
+                    
+        # Auto-expand plot width/height (Fixes bottom/right bleeding)
+        bb = self._rooms_bbox()
         if bb.right > fb.right + 1e-6 or bb.bottom > fb.bottom + 1e-6:
             new_w = max(self.plot.w, bb.right + self.setback)
             new_h = max(self.plot.h, bb.bottom + self.setback)
@@ -826,14 +879,6 @@ class HouseSketch:
                 new_w - 2 * self.setback,
                 new_h - 2 * self.setback,
             )
-
-        # Overlapping?
-        for i, a in enumerate(self.rooms):
-            for b in self.rooms[i + 1 :]:
-                ox = min(a.rect.right, b.rect.right) - max(a.rect.x, b.rect.x)
-                oy = min(a.rect.bottom, b.rect.bottom) - max(a.rect.y, b.rect.y)
-                if ox > 1e-6 and oy > 1e-6:
-                    print(f"Warning: {a.label!r} and {b.label!r} overlap.")
 
         adj = self._compute_adjacency()
 

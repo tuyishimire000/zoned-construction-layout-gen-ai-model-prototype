@@ -618,6 +618,11 @@ def build_floorplan(params: dict, compliance: dict) -> tuple:
         furniture_overrides=params.get("furniture_overrides")
     )
 
+    if getattr(hs, 'warnings', None):
+        if "recommendations" not in compliance:
+            compliance["recommendations"] = []
+        compliance["recommendations"].extend(hs.warnings)
+
     # 2. Map HouseSketch geometry to Model Geometry
     placed_rooms = []
     
