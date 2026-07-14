@@ -818,18 +818,18 @@ class HouseSketch:
         self._resolve_positions()
 
         # Inside the footprint? (Wait until after collision resolution to expand)
-        # Physics Solver: Resolve Overlaps (AABB Separation)
-        for _ in range(50):
+        # Physics-based collision avoidance
+        for _ in range(150):
             moved = False
             for i, a in enumerate(self.rooms):
                 for b in self.rooms[i + 1 :]:
                     if not a.rect or not b.rect: continue
                     ox = min(a.rect.right, b.rect.right) - max(a.rect.x, b.rect.x)
                     oy = min(a.rect.bottom, b.rect.bottom) - max(a.rect.y, b.rect.y)
-                    if ox > 1e-6 and oy > 1e-6:
+                    if ox > 1e-5 and oy > 1e-5:
                         # Push apart along the axis of minimum overlap
                         if ox < oy:
-                            shift = (ox / 2.0) + 0.001
+                            shift = (ox / 2.0) + 0.002
                             if a.rect.cx < b.rect.cx:
                                 a.rect.x -= shift
                                 b.rect.x += shift
@@ -837,7 +837,7 @@ class HouseSketch:
                                 a.rect.x += shift
                                 b.rect.x -= shift
                         else:
-                            shift = (oy / 2.0) + 0.001
+                            shift = (oy / 2.0) + 0.002
                             if a.rect.cy < b.rect.cy:
                                 a.rect.y -= shift
                                 b.rect.y += shift
@@ -854,7 +854,7 @@ class HouseSketch:
                 if not a.rect or not b.rect: continue
                 ox = min(a.rect.right, b.rect.right) - max(a.rect.x, b.rect.x)
                 oy = min(a.rect.bottom, b.rect.bottom) - max(a.rect.y, b.rect.y)
-                if ox > 1e-6 and oy > 1e-6:
+                if ox > 1e-5 and oy > 1e-5:
                     raise SketchValidationError("The AI-generated manual layout was too tangled and caused unresolvable overlaps. We fell back to auto-layout to guarantee a clean design.")
 
         # Align building to top-left setback (Fixes top/left bleeding)
@@ -1523,20 +1523,30 @@ class HouseSketch:
                 self._draw_furniture(surf, t, r, idx, item)
 
         # Labels.
-        for r in self.all_rooms:
+        for r in self.rooms:
+            if not r.rect: continue
             cx, cy = t.pt((r.rect.cx, r.rect.cy))
+            lines = []
+            if r.label:
+                # Wrap name into multiple lines if it's long, to prevent it from overlapping walls of narrow rooms
+                words = r.label.split()
+                if len(words) >= 2 and len(r.label) > 10:
+                    # simplistic word wrap (max 2 words per line)
+                    for i in range(0, len(words), 2):
+                        lines.append(" ".join(words[i:i+2]))
+                else:
+                    lines.append(r.label)
+            lines.append(f"{r.rect.w:.1f}x{r.rect.h:.1f} m")
+
             if r.type == RoomType.CORRIDOR:
                 surf.text(cx, cy, r.label, fill=self.C_DIM, size=11, anchor="middle")
                 continue
-            surf.text(cx, cy - 8, r.label, fill=self.C_LABEL, size=14, anchor="middle")
-            surf.text(
-                cx,
-                cy + 10,
-                f"{r.rect.w:.1f}x{r.rect.h:.1f} m",
-                fill=self.C_DIM,
-                size=11,
-                anchor="middle",
-            )
+            # Simple text centering
+            lh = 14
+            y = cy - (len(lines) * lh) / 2 + lh/2
+            for line in lines:
+                surf.text(cx, y, line, fill=self.C_LABEL, size=11, anchor="middle")
+                y += lh
 
         # Overall building dimensions (from the rooms' actual extent), north
         # arrow, title, scale bar.
