@@ -97,7 +97,7 @@ def extract_parameters_from_history(messages: list[dict], current_state: Dict[st
     """
     
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-3.5-flash',
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -146,7 +146,7 @@ def generate_summary(messages: list[dict], params: dict, compliance: dict) -> st
     """
     
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-3.5-flash',
         contents=prompt,
         config=types.GenerateContentConfig(
             temperature=0.4,
@@ -167,7 +167,7 @@ def generate_title(prompt: str) -> str:
     
     try:
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.5-flash',
             contents=f"Generate a short, snappy 2 to 4 word title for this architectural project based on this prompt: '{prompt}'. Output only the title, no quotes or extra text.",
             config=types.GenerateContentConfig(
                 temperature=0.4,
