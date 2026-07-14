@@ -65,7 +65,7 @@ def chat_with_architect(request: ChatRequest, current_user: User = Depends(get_c
         compliance_dict = validate_project(params_dict)
         if ai_fixes:
             compliance_dict["recommendations"].extend(ai_fixes)
-        img_data, dxf_data, score = generate_floorplan(params_dict, compliance_dict, 'png')
+        img_data, dxf_data, raw_svg, score = generate_floorplan(params_dict, compliance_dict, 'png')
     except Exception as e:
         # Instead of returning a raw traceback, provide a user-friendly error message
         friendly_error = f"I'm sorry, I couldn't generate the layout based on those constraints. Please try adjusting the room sizes or changing the layout description. (Error detail: {str(e)})"
@@ -101,6 +101,7 @@ def chat_with_architect(request: ChatRequest, current_user: User = Depends(get_c
         extracted_parameters=ProjectParameters(**params_dict),
         compliance=ComplianceResult(**compliance_dict),
         floor_plan_base64=img_data,
+        floor_plan_svg=raw_svg,
         dxf_base64=dxf_data,
         architectural_score=score,
         report_data=report_data,
