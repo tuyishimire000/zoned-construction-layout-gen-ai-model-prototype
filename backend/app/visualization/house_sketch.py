@@ -1837,7 +1837,7 @@ class _Surface:
     width: int
     height: int
 
-    def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=1, radius=0, corners=None): ...
+    def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=1, radius=0, corners=None, **kwargs): ...
     def line(self, x0, y0, x1, y1, stroke, width=1): ...
     def polyline(self, pts, stroke, width=1): ...
     def polygon(self, pts, fill=None, stroke=None, width=1): ...
@@ -1853,7 +1853,7 @@ class _PILSurface(_Surface):
         self.img = Image.new("RGB", (width, height), bg)
         self.d = ImageDraw.Draw(self.img)
 
-    def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=1, radius=0, corners=None):
+    def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=1, radius=0, corners=None, **kwargs):
         if radius > 0:
             corner_flags = (
                 ("top_left" in corners) if corners else False,
@@ -1908,8 +1908,9 @@ class _SVGSurface(_Surface):
     def end_group(self):
         self.parts.append("</g>")
 
-    def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=1, radius=0, corners=None):
+    def rect(self, x0, y0, x1, y1, fill=None, stroke=None, width=1, radius=0, corners=None, **kwargs):
         x, y = min(x0, x1), min(y0, y1)
+        extra = "".join(f' {k}="{html.escape(str(v))}"' for k, v in kwargs.items())
         
         # If radius > 0 but corners is an empty list, it means NO corners are rounded
         if radius > 0 and corners is not None and len(corners) == 0:
@@ -1949,14 +1950,14 @@ class _SVGSurface(_Surface):
             
             d = " ".join(p)
             self.parts.append(
-                f'<path d="{d}" fill="{fill or "none"}" stroke="{stroke or "none"}" stroke-width="{width}"/>'
+                f'<path d="{d}" fill="{fill or "none"}" stroke="{stroke or "none"}" stroke-width="{width}"{extra}/>'
             )
         else:
             rx_attr = f' rx="{radius}" ry="{radius}"' if radius > 0 else ""
             self.parts.append(
                 f'<rect x="{self._n(x)}" y="{self._n(y)}" width="{self._n(abs(x1 - x0))}" '
                 f'height="{self._n(abs(y1 - y0))}"{rx_attr} fill="{fill or "none"}" '
-                f'stroke="{stroke or "none"}" stroke-width="{width}"/>'
+                f'stroke="{stroke or "none"}" stroke-width="{width}"{extra}/>'
             )
 
     def line(self, x0, y0, x1, y1, stroke, width=1):
