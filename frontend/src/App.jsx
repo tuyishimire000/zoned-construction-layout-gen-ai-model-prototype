@@ -669,6 +669,9 @@ function App() {
           <p className="subhead">
             {isLogin ? 'Welcome back — sign in to continue your build.' : 'Create an account to start your first build.'}
           </p>
+          <div style={{ fontSize: '12px', color: 'var(--text-faint)', textAlign: 'center', marginBottom: '20px', opacity: 0.8 }}>
+            <b>Project Owner:</b> Ishimwe Leonce | <b>Contact:</b> 0788327103 / leoishimwe@gmail.com
+          </div>
 
           <form onSubmit={handleAuth}>
             {!isLogin && (
@@ -880,6 +883,9 @@ function App() {
           <div>
             <h1>AI Architect Studio</h1>
             <p>Chat with your AI to dynamically design and refine your building, drawn to scale as you go.</p>
+            <div style={{ fontSize: '13px', color: 'var(--text-faint)', marginTop: '12px', opacity: 0.8 }}>
+              <b>Project Owner:</b> Ishimwe Leonce &nbsp;|&nbsp; <b>Contact:</b> 0788327103 / leoishimwe@gmail.com
+            </div>
           </div>
 
         </div>
